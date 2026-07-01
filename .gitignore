@@ -8,6 +8,10 @@ __pycache__/
 # 环境
 .env
 
+# 参考项目 / Cursor skills（本地保留，不入库）
+ref_projects/
+skills/
+
 # 本地大文件（可重建）
 artifacts/panel/
 logs/
