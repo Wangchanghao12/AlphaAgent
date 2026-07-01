@@ -1,0 +1,10 @@
+{
+  "ma_dev": {
+    "name": "3日均线偏离",
+    "expression_file": "examples/factors/ma_dev.dsl"
+  },
+  "ret_factor": {
+    "name": "日收益",
+    "expression": "$ret"
+  }
+}

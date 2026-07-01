@@ -1,0 +1,12 @@
+# Panel 数据配置
+panel:
+  path: artifacts/panel/panel_1d.parquet
+
+# 默认股票池：中证1000 成分并集
+universe:
+  default: zz1000
+
+# Tushare 拉数限速（秒/请求）
+tushare:
+  sleep_sec: 0.35
+  batch_size: 40
