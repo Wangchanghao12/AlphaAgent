@@ -77,6 +77,31 @@ def materialize_to_canonical(
     return MaterializeResult(values=aligned, expr=expr.strip(), aux_tags=tags)
 
 
+def materialize_slice_to_canonical(
+    expr: str,
+    panel: pd.DataFrame,
+    zoo: FactorZoo,
+    *,
+    start: str,
+    end: str,
+) -> MaterializeResult:
+    """在 panel 日期子集上求值，并对齐到完整 canonical index（窗口外为 NaN）。"""
+    panel = panel.sort_index()
+    panel_slice = slice_panel(panel, start=start, end=end)
+    if panel_slice.empty:
+        raise ValueError(f"panel 切片为空: start={start!r} end={end!r}")
+    out = eval_factor(expr, panel_slice)
+    if not isinstance(out, pd.Series):
+        raise TypeError(f"因子输出须为 Series，得到 {type(out)!r}")
+    aligned = canonical_align(
+        out,
+        row_index=zoo.index,
+        n_rows=zoo.manifest.n_rows,
+    )
+    tags = collect_aux_intervals_from_expr(expr)
+    return MaterializeResult(values=aligned, expr=expr.strip(), aux_tags=tags)
+
+
 def mask_values_before_start(values: np.ndarray, zoo: FactorZoo, start: str) -> np.ndarray:
     """将 datetime < start 的行置为 NaN，从 start（含）起保留入库值。"""
     out = np.array(values, dtype=np.float32, copy=True)

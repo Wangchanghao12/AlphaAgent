@@ -285,3 +285,64 @@ def verify_index_hash(manifest: LibraryManifest, index: RowIndex) -> None:
         raise ValueError(
             f"index_hash 不匹配: manifest={manifest.index_hash!r} current={current!r}"
         )
+
+
+def verify_index_prefix_stable(
+    old_rows: pd.DataFrame,
+    new_rows: pd.DataFrame,
+    old_n: int,
+) -> bool:
+    """新 index 前 old_n 行是否与旧 index 完全一致（datetime, instrument 序）。"""
+    if len(new_rows) < old_n or len(old_rows) < old_n:
+        return False
+    old_prefix = old_rows.iloc[:old_n][["datetime", "instrument"]].copy()
+    new_prefix = new_rows.iloc[:old_n][["datetime", "instrument"]].copy()
+    old_prefix["datetime"] = pd.to_datetime(old_prefix["datetime"], errors="coerce")
+    new_prefix["datetime"] = pd.to_datetime(new_prefix["datetime"], errors="coerce")
+    old_prefix["instrument"] = old_prefix["instrument"].astype(str)
+    new_prefix["instrument"] = new_prefix["instrument"].astype(str)
+    return old_prefix.reset_index(drop=True).equals(new_prefix.reset_index(drop=True))
+
+
+def extend_library_index(
+    lib_root: Path,
+    *,
+    panel: pd.DataFrame,
+    panel_path: Path,
+) -> RowIndex:
+    """panel 尾部追加且前缀稳定时：扩展 index/manifest，保留 sample_row_ids。"""
+    paths = FactorLibraryPaths(root=Path(lib_root).expanduser().resolve())
+    if not paths.manifest.is_file():
+        raise FileNotFoundError(f"因子库未初始化: {paths.manifest}")
+
+    old_index = RowIndex.load(paths)
+    old_n = old_index.n_rows
+    panel = panel.sort_index()
+
+    frame = _panel_to_index_frame(panel)
+    new_rows = build_row_index(frame)
+    if len(new_rows) <= old_n:
+        raise ValueError(f"panel 行数 {len(new_rows)} 未大于库 n_rows {old_n}")
+
+    if not verify_index_prefix_stable(old_index.rows, new_rows, old_n):
+        raise ValueError("index 前缀不稳定，无法增量扩展")
+
+    shards = build_time_shards(new_rows)
+    new_index = RowIndex(
+        rows=new_rows,
+        shards=shards,
+        sample_row_ids=old_index.sample_row_ids.copy(),
+    )
+    new_index.save(paths)
+
+    manifest_data = json.loads(paths.manifest.read_text(encoding="utf-8"))
+    panel_path_str = str(Path(panel_path).expanduser().resolve())
+    manifest_data["n_rows"] = new_index.n_rows
+    manifest_data["index_hash"] = index_content_hash(new_rows)
+    manifest_data["panel_path"] = panel_path_str
+    manifest_data["universe_path"] = panel_path_str
+    paths.manifest.write_text(
+        json.dumps(manifest_data, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return new_index

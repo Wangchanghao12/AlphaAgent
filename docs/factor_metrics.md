@@ -28,7 +28,9 @@ uv run python scripts/eval_factor.py --expr-file your.dsl --report --start-time 
 | 列名 | 定义（简化） |
 |------|----------------|
 | `label_1d_open_to_open` | 从 **T+1 开盘** 到 **T+2 开盘** 的收益率（默认） |
-| `label_1d_close_to_close` | 从 **T+1 收盘** 持有到 **T+2 收盘** 的收益率 |
+| `label_1d_close_to_close` | 从 **T+1 收盘** 到 **T+2 收盘**（持有 1 个交易日） |
+| `label_10d_close_to_close` | 从 **T+1 收盘** 到 **T+11 收盘**（持有 10 个交易日，适合基本面因子） |
+| `label_20d_close_to_close` | 从 **T+1 收盘** 到 **T+21 收盘**（持有 20 个交易日） |
 | `ret` | 当日相对前一日收盘的日收益率（多用于描述性统计，作 label 较少） |
 
 ---
@@ -96,6 +98,29 @@ uv run python scripts/eval_factor.py --expr-file your.dsl --report --start-time 
 | **train_start 之前 mask** | 入库值在 `train_start` 之前置 NaN，评估区间从 train_start 起算 |
 
 默认入库策略见 [`seekalpha/factor/types.py`](../seekalpha/factor/types.py) 中的 `IngestPolicy`。
+
+---
+
+## panel 更新后增量 realign（`realign_factorlib.py`）
+
+`build_panel.py --update` 追加新交易日后，若因子库 index **前缀不变**（仅尾部追加行），可用增量 realign：
+
+```bash
+uv run python scripts/build_panel.py --update
+uv run python scripts/realign_factorlib.py
+```
+
+| 步骤 | 说明 |
+|------|------|
+| **窗口** | 默认取近 **240** 个交易日 + 新增行 N 做 DSL batch 求值 |
+| **校验** | update 前最后 **K** 个交易日（默认 **20**）与库内 memmap **float32 完全一致** |
+| **失败** | 扩窗至 **480** 重试；仍失败则该因子 **全 panel 重算** |
+| **前缀变化** | index 非 append-only 时自动 **全量 realign** |
+
+可选：`--overlap-verify-days 10` 调整校验天数。
+
+| 试跑（不写盘） | `uv run python scripts/realign_factorlib.py --dry-run` |
+| **滚动 probe**（库已对齐、模拟多窗口） | `uv run python tests/test_factor/rolling_probe_incremental_realign.py` |
 
 ---
 

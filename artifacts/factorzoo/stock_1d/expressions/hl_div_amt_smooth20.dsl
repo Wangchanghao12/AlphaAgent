@@ -1,0 +1,6 @@
+avg_hl = TS_MEAN(SUBTRACT($adj_high, $adj_low), 20)
+avg_close = TS_MEAN($adj_close, 20)
+avg_hl_pct = DIVIDE(avg_hl, avg_close)
+avg_amt = TS_MEAN($amount, 20)
+raw = DIVIDE(avg_hl_pct, ADD(avg_amt, 1))
+LOG(ADD(raw, 1e-12))

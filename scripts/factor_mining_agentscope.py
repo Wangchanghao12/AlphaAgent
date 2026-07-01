@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
-"""LLM 股票因子挖掘 CLI。
+"""LLM 股票因子挖掘 CLI（AgentScope 版，终端流式输出）。
+
+与 scripts/factor_mining.py 使用相同的 system prompt 与 eval/submit 工具语义；
+模型思考、回复与工具结果通过 AgentScope reply_stream 实时打印。
 
 示例：
   uv sync --extra mining
-  uv run python scripts/factor_mining.py --panel artifacts/panel/panel_1d.parquet
+  uv run python scripts/factor_mining_agentscope.py \\
+    --panel artifacts/panel/panel_1d.parquet
+  uv run python scripts/factor_mining_agentscope.py \\
+    --panel artifacts/panel/panel_1d.parquet \\
+    --seed-factor examples/factors/ma20_dev.dsl \\
+    --user-message "在种子因子基础上继续优化"
 
 环境变量（仓库根 .env）：OPENAI_API_KEY、OPENAI_API_BASE、MODEL。
 """
@@ -11,6 +19,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -25,7 +34,8 @@ except ImportError:
     load_dotenv = None  # type: ignore[assignment,misc]
 
 from seekalpha.core.paths import FACTORZOO_DIR, PANEL_PATH  # noqa: E402
-from seekalpha.factor.mining import MiningConfig, run_factor_mining  # noqa: E402
+from seekalpha.factor.mining import MiningConfig  # noqa: E402
+from seekalpha.factor.mining.agentscope_run import run_factor_mining_agentscope  # noqa: E402
 from seekalpha.factor.mining.context import StockEvalContext  # noqa: E402
 from seekalpha.factor.mining.seed_factors import build_user_message_with_seed_factors  # noqa: E402
 from seekalpha.factor.types import DEFAULT_LABEL_COL  # noqa: E402
@@ -37,7 +47,7 @@ def _load_env() -> None:
 
 
 def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="LLM 股票因子挖掘")
+    p = argparse.ArgumentParser(description="LLM 股票因子挖掘（AgentScope 流式 CLI）")
     p.add_argument("--panel", default=str(PANEL_PATH))
     p.add_argument("--train-start", default="2019-01-01")
     p.add_argument("--train-end", default="2021-12-31")
@@ -65,13 +75,13 @@ def _parse_args() -> argparse.Namespace:
         metavar="PATH",
         help="初始种子因子 .dsl 路径，可重复指定；单次可跟多个路径，如 --seed-factor a.dsl b.dsl",
     )
-    p.add_argument("--no-operator-catalog", action="store_true")
-    p.add_argument("--quiet", action="store_true")
-    p.add_argument("--factorlib", type=Path, default=None, help=f"默认 {FACTORZOO_DIR}")
-    p.add_argument("--no-submit", action="store_true")
-    p.add_argument("--max-cs-corr", type=float, default=0.8)
-    p.add_argument("--similar-top-k", type=int, default=3)
-    p.add_argument("--ingest-overwrite", action="store_true")
+    p.add_argument("--no-operator-catalog", action="store_true", help="不在 system prompt 中注入算子清单")
+    p.add_argument("--quiet", action="store_true", help="不在终端流式打印（仍写 JSONL 日志）")
+    p.add_argument("--factorlib", type=Path, default=None, help=f"factorzoo 根目录（默认 {FACTORZOO_DIR}）")
+    p.add_argument("--no-submit", action="store_true", help="禁用 submit_factor 交付工具")
+    p.add_argument("--max-cs-corr", type=float, default=0.8, help="submit 截面去重 |corr| 上限")
+    p.add_argument("--similar-top-k", type=int, default=3, help="查重失败时返回的最相似因子数")
+    p.add_argument("--ingest-overwrite", action="store_true", help="submit 时覆盖已存在 factor_id")
     return p.parse_args()
 
 
@@ -95,13 +105,10 @@ def main() -> int:
         return 2
 
     try:
-        from openai import OpenAI
+        import agentscope  # noqa: F401
     except ImportError:
-        print("错误：请安装 openai（uv sync --extra mining）", file=sys.stderr)
+        print("错误：请安装 agentscope（uv sync --extra mining）", file=sys.stderr)
         return 2
-
-    base_url = os.environ.get("OPENAI_API_BASE")
-    client = OpenAI(api_key=api_key, **({"base_url": base_url} if base_url else {}))
 
     user_message = args.user_file.read_text(encoding="utf-8") if args.user_file else args.user_message
     seed_paths = [Path(p) for batch in args.seed_factors for p in batch]
@@ -113,6 +120,7 @@ def main() -> int:
         except FileNotFoundError as exc:
             print(f"错误：{exc}", file=sys.stderr)
             return 2
+    base_url = os.environ.get("OPENAI_API_BASE")
 
     config = MiningConfig(
         eval=StockEvalContext(
@@ -137,13 +145,16 @@ def main() -> int:
         ingest_overwrite=args.ingest_overwrite,
     )
 
-    out = run_factor_mining(
-        config,
-        user_message,
-        client=client,
-        log_dir=args.log_dir,
-        include_operator_catalog=not args.no_operator_catalog,
-        verbose=not args.quiet,
+    out = asyncio.run(
+        run_factor_mining_agentscope(
+            config,
+            user_message,
+            api_key=api_key,
+            base_url=base_url,
+            log_dir=args.log_dir,
+            include_operator_catalog=not args.no_operator_catalog,
+            verbose=not args.quiet,
+        )
     )
     print(json.dumps(out, ensure_ascii=False, indent=2))
     return 0

@@ -25,6 +25,8 @@ _AGG_LAST = {
     "tot_cap",
     "label_1d_close_to_close",
     "label_1d_open_to_open",
+    "label_10d_close_to_close",
+    "label_20d_close_to_close",
 }
 _AGG_SUM = {"volume", "amount", "total_turnover"}
 

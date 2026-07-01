@@ -1,29 +1,7 @@
-"""从 DSL 注册表枚举算子清单，供 system prompt 注入。"""
+"""挖掘侧算子清单：复用 seekalpha.dsl.catalog（算子唯一定义在 seekalpha/dsl）。"""
 
 from __future__ import annotations
 
-import inspect
+from seekalpha.dsl.catalog import list_operator_names, operator_catalog_markdown
 
-from seekalpha.dsl.registry import build_operator_namespace
-
-
-def list_operator_names() -> list[str]:
-    return sorted(build_operator_namespace())
-
-
-def operator_catalog_markdown() -> str:
-    ns = build_operator_namespace()
-    lines: list[str] = []
-    for name in sorted(ns):
-        fn = ns[name]
-        try:
-            sig = str(inspect.signature(fn))
-        except (TypeError, ValueError):
-            sig = "(...)"
-        doc = (inspect.getdoc(fn) or "").strip().splitlines()
-        summary = doc[0].strip() if doc else ""
-        line = f"- `{name}{sig}`"
-        if summary:
-            line += f" — {summary}"
-        lines.append(line)
-    return "\n".join(lines)
+__all__ = ["list_operator_names", "operator_catalog_markdown"]

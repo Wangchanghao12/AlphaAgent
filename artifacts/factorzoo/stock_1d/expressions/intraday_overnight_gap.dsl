@@ -1,0 +1,5 @@
+prev_close = DELAY($adj_close, 1)
+overnight_gap = DIVIDE(SUBTRACT($adj_open, prev_close), prev_close)
+gap_w = CS_WINSORIZE(overnight_gap, 0.01, 0.99)
+gap_ma3 = TS_MEAN(gap_w, 3)
+CS_NEUTRALIZE(gap_ma3, CS_BUCKET(LOG($float_cap), 3))

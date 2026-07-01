@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""因子入库：registry / --expr-file → DSL 求值 → 指标 → 查重 → factorzoo。
+"""因子入库：registry / --expr-file / --expr-dir → DSL 求值 → 指标 → 查重 → factorzoo。
 
 示例:
   uv run python scripts/ingest_factors.py --expr-file examples/factors/ma_dev.dsl
-  uv run python scripts/ingest_factors.py --expr-file foo.dsl --factor-id my_factor --name "我的因子"
+  uv run python scripts/ingest_factors.py --expr-dir artifacts/factorzoo/stock_1d/expressions
   uv run python scripts/ingest_factors.py --registry configs/factors/registry.example.json --dry-run
 """
 
@@ -50,6 +50,17 @@ def _load_expr(*, expr: str | None, expr_file: Path | None) -> str:
 def _resolve_entries(
     args: argparse.Namespace,
 ) -> list[tuple[str, str, str]]:
+    if args.expr_dir is not None:
+        expr_root = args.expr_dir if args.expr_dir.is_absolute() else ROOT / args.expr_dir
+        from seekalpha.factor.expr_store import list_expr_dir_entries
+
+        entries = list_expr_dir_entries(expr_root)
+        if args.factor_id:
+            entries = [e for e in entries if e[0] == args.factor_id]
+            if not entries:
+                raise SystemExit(f"目录中无因子: {args.factor_id}")
+        return entries
+
     if args.expr_file is not None or args.expr is not None:
         expr = _load_expr(expr=args.expr, expr_file=args.expr_file)
         if args.factor_id:
@@ -122,6 +133,11 @@ def main() -> None:
     expr_group = parser.add_mutually_exclusive_group()
     expr_group.add_argument("--expr-file", type=Path, help="DSL 表达式文件路径")
     expr_group.add_argument("--expr", type=str, help="DSL 表达式字符串")
+    expr_group.add_argument(
+        "--expr-dir",
+        type=Path,
+        help="批量入库：目录下全部 *.dsl（factor_id=文件名 stem）",
+    )
     parser.add_argument("--name", type=str, default=None, help="因子显示名（配合 --expr-file）")
     parser.add_argument("--factor-id", type=str, default=None, help="因子 ID；registry 模式下可筛选单个因子")
     parser.add_argument("--overwrite", action="store_true")

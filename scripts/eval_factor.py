@@ -140,7 +140,7 @@ def main() -> None:
 if __name__ == "__main__":
     main()
     # good
-    """
+    r"""
     D:\AlphaAgent-Stock\data\factors\expressions\intraday_overnight_gap.dsl
     D:\AlphaAgent-Stock\data\factors\expressions\crowd_eff_fluency_vol18.dsl
     D:\AlphaAgent-Stock\data\factors\expressions\hl_div_amt_smooth20.dsl

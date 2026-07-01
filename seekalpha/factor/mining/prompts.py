@@ -4,7 +4,16 @@ from __future__ import annotations
 
 import json
 
-from seekalpha.factor.mining.operators import operator_catalog_markdown
+from seekalpha.dsl.catalog import operator_catalog_markdown
+from seekalpha.factor.mining.mls_thresholds import mls_fmb_thresholds_markdown
+from seekalpha.factor.types import DEFAULT_LABEL_COL
+
+_LABEL_DESCRIPTIONS: dict[str, str] = {
+    "label_1d_open_to_open": "T+1 开盘 → T+2 开盘（短周期 alpha，默认）",
+    "label_1d_close_to_close": "T+1 收盘 → T+2 收盘（1 日持有）",
+    "label_10d_close_to_close": "T+1 收盘 → T+11 收盘（10 日持有，适合基本面/慢因子）",
+    "label_20d_close_to_close": "T+1 收盘 → T+21 收盘（20 日持有，适合基本面/慢因子）",
+}
 
 FACTOR_MINING_INTERFACE_PROMPT = """你是一名量化研究自主智能体，专注于**A 股日频** alpha 因子。请在多轮迭代中演化因子；**核心目标是在提升与前瞻 label 线性相关的同时，将因子鲁棒性视为与「够不够相关」同等重要**。**主战场在训练集（train）**：日常迭代以 train 的 `summary` 与 **`monthly_corr_robustness`** 联合判断；验证集（val）仅用于**极少量**泛化抽检。
 
@@ -12,9 +21,9 @@ FACTOR_MINING_INTERFACE_PROMPT = """你是一名量化研究自主智能体，�
 
 ## 你的目标
 
-**优化目标：（1）train 上达到可用的相关水平，且（2）鲁棒性达标。** 鲁棒性覆盖：`monthly_corr_robustness`、`factor_coverage`、因子分布（`factor_skewness`/`factor_kurtosis`），以及少数 val 调用上与 train 不出现灾难性背离。
+**优化目标：（1）train 上达到可用的相关水平，且（2）鲁棒性达标。** 鲁棒性覆盖：`monthly_corr_robustness`、`factor_coverage`、因子分布（`factor_skewness`/`factor_kurtosis`）、**`summary.mls_fmb`**，以及少数 val 调用上与 train 不出现灾难性背离。
 
-**【交付定义】** 仅当因子在 **train 与 val** 上均满足：`abs(summary.ic) ≥ 0.005`（且最好 `abs(summary.rank_ic) ≥ 0.005`）、`|summary.icir| > 0.1`、`summary.cs_pearson_autocorr > 0.6`（截面 lag-1 自相关，衡量日度排名稳定性）、`monthly_corr_robustness.share_months_ic_positive > 0.7`（负 IC 因子看 `< 0.3`）、`summary.factor_coverage > 0.9`，**十分组单调性**合理（见 `summary.decile_mean_label`：`ic>0` 时 D10.mean_label > D1；`ic<0` 时 D1 > D10），且 **val `ic` 与 train 同号**（`eval_on_val_set` 须传 `expected_sign=1` 或 `-1`），才视为 **保留级候选**。
+**【交付定义】** 仅当因子在 **train 与 val** 上均满足：`abs(summary.ic) ≥ 0.005`（且最好 `abs(summary.rank_ic) ≥ 0.005`）、`|summary.icir| > 0.1`、`summary.cs_pearson_autocorr > 0.6`（截面 lag-1 自相关，衡量日度排名稳定性）、`monthly_corr_robustness.share_months_ic_positive > 0.7`（负 IC 因子看 `< 0.3`）、`summary.factor_coverage > 0.9`，**十分组单调性**合理（见 `summary.decile_mean_label`：`ic>0` 时 D10.mean_label > D1；`ic<0` 时 D1 > D10），**MLS-FMB** 达标（见下节 `summary.mls_fmb`，`mean_rho`/`nw_t_rho`/`nw_t_ls` 与 `ic` 同号且 train/val 分别满足 |·| 门槛），且 **val `ic` 与 train 同号**（`eval_on_val_set` 须传 `expected_sign=1` 或 `-1`），才视为 **保留级候选**。
 
 **【会话完成条件】** 挖掘会话的**唯一正式交付方式**是调用 **`submit_factor`** 并成功入库（返回 `stored=true`）。仅完成 train/val 评估、口头总结或停在「建议入库」**不算交付**；每个保留级候选须各调用一次 `submit_factor`（不同 `factor_name`）。查重失败时根据 `similarity.top_neighbors` 改写后再提交。
 
@@ -44,8 +53,11 @@ FACTOR_MINING_INTERFACE_PROMPT = """你是一名量化研究自主智能体，�
 | `summary.icir` | IC / std(逐日 IC)，即 IC 信息比率 |
 | `summary.rank_ic` | 逐日横截面 Spearman Rank IC 的均值 |
 | `summary.cs_pearson_autocorr` | 逐日横截面 lag-1 Pearson 自相关均值：`corr_CS(f_t, f_{t-1})`，衡量因子排名日度延续性；**> 0.6** 方可入库 |
+| `summary.mls_fmb` | 逐日十分组 MLS-FMB：`mean_rho`（单调性）、`mean_ls`/`ir_ls_annual`（多空 IR）、`mls`（综合）、`nw_t_rho`/`nw_t_ls`（NW t） |
 
-标签列已在 panel 内（默认 `label_1d_open_to_open` = T+1 开盘至 T+2 开盘收益；亦可用 `label_1d_close_to_close`）。
+{{MLS_FMB_THRESHOLDS}}
+
+{{LABEL_SECTION}}
 
 ---
 
@@ -170,7 +182,7 @@ tri_gap = CHIP_COM_W_GAP($adj_close, $adj_low, $adj_high, $volume, 40, $vwap, 64
 3. 入库 delivery 门槛：全区间 `|ICIR| > 0.1`、**`cs_pearson_autocorr > 0.6`**
 4. 自动截面去重（与库内因子 |cs_corr| ≥ 阈值则拒绝，并返回 top3 最相似因子的 `expr` 供改写后重试）
 5. 须传 **`comment`** 说明因子含义（经济直觉、算子、窗口、IC 方向）
-6. 成功后写入 factorzoo 与 `data/factors/mining_delivered_registry.json`；返回 `stored=true` 方可结束会话
+6. 成功后写入 factorzoo 与 `artifacts/factorzoo/stock_1d/mining_delivered_registry.json`；返回 `stored=true` 方可结束会话
 
 ---
 
@@ -244,10 +256,45 @@ def _tool_call_examples_section(*, include_submit: bool = True) -> str:
 _SUBMIT_DISABLED_NOTE = """
 ---
 
+
 ### 交付说明
 
 本次会话**未启用** `submit_factor` 工具（`--no-submit`）。保留级候选仅能通过 train/val 评估确认，无法自动入库。
 """
+
+
+def _label_section_markdown(label_col: str) -> str:
+    desc = _LABEL_DESCRIPTIONS.get(label_col, "panel 内预计算的前瞻收益列")
+    lines = [
+        f"**本次会话 label 列：`{label_col}`** — {desc}。",
+        "所有 `summary.ic` / `rank_ic` / `decile_mean_label` / `mls_fmb` 均相对该列计算；**勿在 tool 参数中切换 label**（由 CLI `--label-col` 配置）。",
+        "",
+        "panel 内常用 label（启动时可 `--label-col` 切换）：",
+        "",
+        "| 列名 | 含义 |",
+        "|------|------|",
+    ]
+    for name, meaning in _LABEL_DESCRIPTIONS.items():
+        mark = " **← 本次**" if name == label_col else ""
+        lines.append(f"| `{name}` | {meaning}{mark} |")
+    if label_col not in _LABEL_DESCRIPTIONS:
+        lines.append(f"| `{label_col}` | {desc} **← 本次** |")
+    if label_col.startswith("label_") and "d_close_to_close" in label_col and label_col not in (
+        "label_1d_close_to_close",
+    ):
+        try:
+            hold = int(label_col.split("_")[1].replace("d", ""))
+            if hold > 1:
+                lines.extend(
+                    [
+                        "",
+                        f"**长持有 label 提示**：持有约 **{hold} 个交易日**，因子宜偏基本面/低频结构；"
+                        "月度 IC 稳健性与 `cs_pearson_autocorr` 仍适用，但 IC 绝对值通常低于短周期 label。",
+                    ]
+                )
+        except ValueError:
+            pass
+    return "\n".join(lines)
 
 
 def build_system_prompt(
@@ -255,9 +302,16 @@ def build_system_prompt(
     include_operator_catalog: bool = True,
     enable_submit: bool = True,
     extra_instructions: str = "",
+    label_col: str = DEFAULT_LABEL_COL,
 ) -> str:
     catalog = operator_catalog_markdown() if include_operator_catalog else "（本次未注入算子清单）"
-    body = FACTOR_MINING_INTERFACE_PROMPT.replace("{{OPERATOR_CATALOG}}", catalog)
+    mls_block = mls_fmb_thresholds_markdown(label_col=label_col)
+    label_block = _label_section_markdown(label_col)
+    body = (
+        FACTOR_MINING_INTERFACE_PROMPT.replace("{{OPERATOR_CATALOG}}", catalog)
+        .replace("{{MLS_FMB_THRESHOLDS}}", mls_block)
+        .replace("{{LABEL_SECTION}}", label_block)
+    )
     if not enable_submit:
         body = body.replace("**【会话完成条件】**", "**【会话完成条件（本次未启用 submit）】**")
     parts = [body.strip(), _tool_call_examples_section(include_submit=enable_submit)]

@@ -54,7 +54,19 @@ DEFAULT_PANEL_PATH = PANEL_PATH
 
 
 
-_DERIVED_COLUMNS = ("ret", "label_1d_close_to_close", "label_1d_open_to_open")
+# label_{N}d_close_to_close：T+1 收盘 → T+(N+1) 收盘
+CLOSE_TO_CLOSE_LABEL_HOLD_DAYS = (1, 10, 20)
+
+
+def close_to_close_label_name(hold_days: int) -> str:
+    return f"label_{hold_days}d_close_to_close"
+
+
+_DERIVED_COLUMNS = (
+    "ret",
+    "label_1d_open_to_open",
+    *(close_to_close_label_name(n) for n in CLOSE_TO_CLOSE_LABEL_HOLD_DAYS),
+)
 
 
 
@@ -158,15 +170,13 @@ def _calc_label_1d_open_to_open(adj_open: pd.Series) -> pd.Series:
 
 
 
-def _calc_label_1d_close_to_close(adj_close: pd.Series) -> pd.Series:
+def _calc_label_nd_close_to_close(adj_close: pd.Series, hold_days: int) -> pd.Series:
+    """T+1 收盘 → T+(hold_days+1) 收盘。例：hold_days=10 即 T+1 close 到 T+11 close。"""
 
-    close_t1 = adj_close.shift(-1)
-
-    close_t2 = adj_close.shift(-2)
-
-    denom = close_t1.replace(0, np.nan)
-
-    return (close_t2 - close_t1) / denom
+    entry = adj_close.shift(-1)
+    exit_ = adj_close.shift(-(hold_days + 1))
+    denom = entry.replace(0, np.nan)
+    return (exit_ - entry) / denom
 
 
 
@@ -218,11 +228,10 @@ def _add_derived_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     )
 
-    df["label_1d_close_to_close"] = df.groupby(level="instrument", sort=False)[
-
-        "adj_close"
-
-    ].transform(_calc_label_1d_close_to_close)
+    g_close = df.groupby(level="instrument", sort=False)["adj_close"]
+    for hold_days in CLOSE_TO_CLOSE_LABEL_HOLD_DAYS:
+        col = close_to_close_label_name(hold_days)
+        df[col] = g_close.transform(lambda s, d=hold_days: _calc_label_nd_close_to_close(s, d))
 
     df["label_1d_open_to_open"] = df.groupby(level="instrument", sort=False)[
 
@@ -318,6 +327,33 @@ def _panel_base_from_hq(
 
 
 
+def _ensure_derived_columns(panel: pd.DataFrame, *, dtype: str = "float32") -> pd.DataFrame:
+    """补齐缺失的 ret / label 列（panel schema 升级时用）。"""
+
+    panel = panel.copy()
+    for col in _DERIVED_COLUMNS:
+        if col not in panel.columns:
+            panel[col] = np.nan
+            panel[col] = panel[col].astype(dtype)
+    return panel
+
+
+
+
+
+def backfill_panel_derived_columns(panel: pd.DataFrame, *, dtype: str = "float32") -> pd.DataFrame:
+    """全量重算 ret / 全部 label 列。"""
+
+    if panel.empty:
+        return panel
+    panel = _ensure_derived_columns(panel, dtype=dtype)
+    since = panel.index.get_level_values("datetime").min()
+    return _rederive_since(panel, since, dtype=dtype)
+
+
+
+
+
 def _rederive_since(panel: pd.DataFrame, since: pd.Timestamp, *, dtype: str = "float32") -> pd.DataFrame:
 
     """基于 panel 内 adj 列，从 since 起重算 ret / label（用全历史 groupby，避免前视缺失）。"""
@@ -328,7 +364,7 @@ def _rederive_since(panel: pd.DataFrame, since: pd.Timestamp, *, dtype: str = "f
 
 
 
-    panel = panel.copy()
+    panel = _ensure_derived_columns(panel, dtype=dtype)
 
     since = pd.Timestamp(since)
 
@@ -348,11 +384,13 @@ def _rederive_since(panel: pd.DataFrame, since: pd.Timestamp, *, dtype: str = "f
 
     )
 
-    full_label_c = panel.groupby(level="instrument", sort=False)["adj_close"].transform(
-
-        _calc_label_1d_close_to_close
-
-    )
+    g_close = panel.groupby(level="instrument", sort=False)["adj_close"]
+    full_labels_c2c = {
+        close_to_close_label_name(hold_days): g_close.transform(
+            lambda s, d=hold_days: _calc_label_nd_close_to_close(s, d)
+        )
+        for hold_days in CLOSE_TO_CLOSE_LABEL_HOLD_DAYS
+    }
 
     full_label_o = panel.groupby(level="instrument", sort=False)["adj_open"].transform(
 
@@ -364,7 +402,8 @@ def _rederive_since(panel: pd.DataFrame, since: pd.Timestamp, *, dtype: str = "f
 
     panel.loc[mask, "ret"] = full_ret.loc[mask].astype(dtype)
 
-    panel.loc[mask, "label_1d_close_to_close"] = full_label_c.loc[mask].astype(dtype)
+    for col, series in full_labels_c2c.items():
+        panel.loc[mask, col] = series.loc[mask].astype(dtype)
 
     panel.loc[mask, "label_1d_open_to_open"] = full_label_o.loc[mask].astype(dtype)
 

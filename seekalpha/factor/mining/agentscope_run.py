@@ -139,6 +139,7 @@ async def run_factor_mining_agentscope(
         include_operator_catalog=include_operator_catalog,
         enable_submit=config.enable_submit,
         extra_instructions=extra_instructions,
+        label_col=ctx.label_col,
     )
 
     log_dir = Path(log_dir)

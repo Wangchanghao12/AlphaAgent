@@ -1,0 +1,466 @@
+{
+  "intraday_overnight_spread_ema10_neutral": {
+    "name": "intraday_overnight_spread_ema10_neutral",
+    "comment": "日内隔夜收益价差动量：分别计算日内的 adj_close/adj_open 收益与隔夜 adj_open/delay(adj_close,1) 收益，取日内收益减隔夜收益作为 spread，经截面 2%/98% 缩尾后用 EMA(span=10) 平滑，最后按流通市值对数 10 组中性化并截面 z-score。因子为负 IC：近期持续“日内强于隔夜”的股票倾向于次日开盘反向收益，反映日内情绪透支与隔夜信息不足的均值回归。",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/intraday_overnight_spread_ema10_neutral.dsl",
+    "ingest_config": {
+      "train_start": "2019-01-01",
+      "ingest_start": "2019-01-01",
+      "ingest_end": "2024-12-31",
+      "label_col": "label_1d_open_to_open"
+    },
+    "ingested_at": "2026-07-01T14:35:47.200713+00:00",
+    "ingest_metrics": {
+      "coverage": 0.999848806979274,
+      "ic": -0.032209384410660825,
+      "icir": -0.3059823926357548,
+      "rank_ic": -0.04119767180642285,
+      "n_days": 1456,
+      "cs_pearson_autocorr": 0.8549643093744185,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": 0.001123
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.000871
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.000889
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.000912
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.000827
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.00094
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.000894
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.000791
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.000512
+        },
+        {
+          "decile": 10,
+          "mean_label": -0.001527
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": -0.08058608058608058,
+        "mean_ls": -0.0026450714977555093,
+        "ir_ls": -0.23224180262796465,
+        "ir_ls_annual": -3.6867243227216484,
+        "mls": 0.2970986633695101,
+        "nw_t_rho": -4.875394206691405,
+        "nw_t_ls": -9.42288491294723,
+        "nw_se_rho": 0.0165291414744427,
+        "nw_se_ls": 0.0002807071849217991,
+        "n_days_rho": 1456,
+        "n_days_ls": 1456,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_1d_open_to_open",
+      "skew": 0.7308265541211697,
+      "kurt": 4.005278555633155,
+      "eval_start": "2019-01-01",
+      "eval_end": "2024-12-31",
+      "finite_ratio": 0.7183476074732533
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 5,
+      "n_factors": 6,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.4851318426316107,
+      "top_neighbors": [
+        {
+          "factor_id": "intraday_overnight_gap",
+          "name": "intraday_overnight_gap",
+          "cs_corr": -0.4851318426316107,
+          "expr": "prev_close = DELAY($adj_close, 1)\novernight_gap = DIVIDE(SUBTRACT($adj_open, prev_close), prev_close)\ngap_w = CS_WINSORIZE(overnight_gap, 0.01, 0.99)\ngap_ma3 = TS_MEAN(gap_w, 3)\nCS_NEUTRALIZE(gap_ma3, CS_BUCKET(LOG($float_cap), 3))"
+        },
+        {
+          "factor_id": "gap_streak_weighted_rank",
+          "name": "gap_streak_weighted_rank",
+          "cs_corr": -0.4691724829506931,
+          "expr": "prev_close = DELAY($adj_close, 1)\ngap = DIVIDE(SUBTRACT($adj_open, prev_close), prev_close)\ngap_up = IF_THEN_ELSE(GT(gap, 0), gap, 0)\ngap_dn = IF_THEN_ELSE(LT(gap, 0), ABS(gap), 0)\nup_streak = TS_STREAK(GT(gap, 0))\ndn_streak = TS_STREAK(LT(gap, 0))\nup_weighted = MULTIPLY(CAST(up_streak, 'float'), gap_up)\ndn_weighted = MULTIPLY(CAST(dn_streak, 'float'), gap_dn)\nstreak_net = SUBTRACT(up_weighted, dn_weighted)\nstreak_rank = RANK(streak_net)\nstreak_rank_ema3 = EMA(streak_rank, 3)\nCS_NEUTRALIZE(streak_rank_ema3, CS_BUCKET(LOG($float_cap), 3))"
+        },
+        {
+          "factor_id": "idio_qspread_win_20",
+          "name": "idio_qspread_win_20",
+          "cs_corr": 0.2877535108467391,
+          "expr": "ret = $ret\nidio_ret = CS_DEMEAN(ret)\nret_win = CS_WINSORIZE(idio_ret, 0.01, 0.99)\nq90 = TS_QUANTILE(ret_win, 20, 0.9)\nq10 = TS_QUANTILE(ret_win, 20, 0.1)\nraw_spread = SUBTRACT(q90, q10)\nCS_NEUTRALIZE(raw_spread, CS_BUCKET(LOG($float_cap), 3))"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "intraday_overnight_rel_strength_ema10": {
+    "name": "intraday_overnight_rel_strength_ema10",
+    "comment": "日内隔夜相对强度：计算日内收益率与隔夜收益率之差，并除以两者绝对值之和进行标准化，得到相对强度。经截面 2%/98% 缩尾后 EMA(span=10) 平滑，再按流通市值对数 10 组中性化并截面 z-score。因子为负 IC：日内相对隔夜表现越强，次日开盘越倾向于反向收益，反映短期信息拥挤后的均值回归。",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/intraday_overnight_rel_strength_ema10.dsl",
+    "ingest_config": {
+      "train_start": "2019-01-01",
+      "ingest_start": "2019-01-01",
+      "ingest_end": "2024-12-31",
+      "label_col": "label_1d_open_to_open"
+    },
+    "ingested_at": "2026-07-01T14:41:26.057533+00:00",
+    "ingest_metrics": {
+      "coverage": 0.999848806979274,
+      "ic": -0.01943329775653871,
+      "icir": -0.24318489507472868,
+      "rank_ic": -0.03024059030506239,
+      "n_days": 1456,
+      "cs_pearson_autocorr": 0.8458426127457558,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": 0.001041
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.000879
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.000942
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.000903
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.000845
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.000823
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.000861
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.000554
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.000222
+        },
+        {
+          "decile": 10,
+          "mean_label": -0.000839
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": -0.10285547785547787,
+        "mean_ls": -0.0019830469484266246,
+        "ir_ls": -0.23138603547056552,
+        "ir_ls_annual": -3.6731394402497197,
+        "mls": 0.37780251235668744,
+        "nw_t_rho": -5.801506074437481,
+        "nw_t_ls": -8.879541253817344,
+        "nw_se_rho": 0.017729099398633454,
+        "nw_se_ls": 0.0002233276350367882,
+        "n_days_rho": 1456,
+        "n_days_ls": 1456,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_1d_open_to_open",
+      "skew": 0.01464175099611569,
+      "kurt": -0.010009687984218196,
+      "eval_start": "2019-01-01",
+      "eval_end": "2024-12-31",
+      "finite_ratio": 0.7183474457663267
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 6,
+      "n_factors": 7,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.7637510871752855,
+      "top_neighbors": [
+        {
+          "factor_id": "intraday_overnight_spread_ema10_neutral",
+          "name": "intraday_overnight_spread_ema10_neutral",
+          "cs_corr": 0.7637510871752855,
+          "expr": "intraday_ret = DIVIDE(SUBTRACT($adj_close, $adj_open), $adj_open)\novernight_ret = DIVIDE(SUBTRACT($adj_open, DELAY($adj_close, 1)), DELAY($adj_close, 1))\nspread = SUBTRACT(intraday_ret, overnight_ret)\nspread_ema = EMA(CS_WINSORIZE(spread, 0.02, 0.98), 10)\nneutralized = CS_NEUTRALIZE(spread_ema, CS_BUCKET(LOG($float_cap), 10))\nCS_ZSCORE(neutralized)"
+        },
+        {
+          "factor_id": "gap_streak_weighted_rank",
+          "name": "gap_streak_weighted_rank",
+          "cs_corr": -0.513191543357923,
+          "expr": "prev_close = DELAY($adj_close, 1)\ngap = DIVIDE(SUBTRACT($adj_open, prev_close), prev_close)\ngap_up = IF_THEN_ELSE(GT(gap, 0), gap, 0)\ngap_dn = IF_THEN_ELSE(LT(gap, 0), ABS(gap), 0)\nup_streak = TS_STREAK(GT(gap, 0))\ndn_streak = TS_STREAK(LT(gap, 0))\nup_weighted = MULTIPLY(CAST(up_streak, 'float'), gap_up)\ndn_weighted = MULTIPLY(CAST(dn_streak, 'float'), gap_dn)\nstreak_net = SUBTRACT(up_weighted, dn_weighted)\nstreak_rank = RANK(streak_net)\nstreak_rank_ema3 = EMA(streak_rank, 3)\nCS_NEUTRALIZE(streak_rank_ema3, CS_BUCKET(LOG($float_cap), 3))"
+        },
+        {
+          "factor_id": "intraday_overnight_gap",
+          "name": "intraday_overnight_gap",
+          "cs_corr": -0.415126285025848,
+          "expr": "prev_close = DELAY($adj_close, 1)\novernight_gap = DIVIDE(SUBTRACT($adj_open, prev_close), prev_close)\ngap_w = CS_WINSORIZE(overnight_gap, 0.01, 0.99)\ngap_ma3 = TS_MEAN(gap_w, 3)\nCS_NEUTRALIZE(gap_ma3, CS_BUCKET(LOG($float_cap), 3))"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "vpin_amount_60d_2m_min2": {
+    "name": "vpin_amount_60d_2m_min2",
+    "comment": "VPIN (Volume-Synchronized Probability of Informed Trading) using dollar turnover ($amount) instead of share volume. VPIN measures the imbalance between buy- and sell-initiated volume on volume buckets, normalized by short-term volatility. Higher VPIN indicates greater informed trading pressure, which in this A-share daily panel predicts lower next-day open-to-open returns (negative IC). Price input is $adj_close, bucket size is $2M turnover, min_buckets=2, classification='tick', and a 60-day rolling window. The final factor is cross-sectionally z-scored. Stronger and more robust than shorter-window variants, with monotonic decile spread (D1 > D10).",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/vpin_amount_60d_2m_min2.dsl",
+    "ingest_config": {
+      "train_start": "2019-01-01",
+      "ingest_start": "2019-01-01",
+      "ingest_end": "2024-12-31",
+      "label_col": "label_1d_open_to_open"
+    },
+    "ingested_at": "2026-07-01T16:45:08.554634+00:00",
+    "ingest_metrics": {
+      "coverage": 0.998132354880939,
+      "ic": -0.012011769516465647,
+      "icir": -0.14305345122290872,
+      "rank_ic": -0.01922051528666379,
+      "n_days": 1456,
+      "cs_pearson_autocorr": 0.9994099417882606,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": 0.001099
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.000746
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.000836
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.000695
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.000678
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.000574
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.000601
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.000527
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.000299
+        },
+        {
+          "decile": 10,
+          "mean_label": -0.000106
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": -0.09703629703629703,
+        "mean_ls": -0.0011031321258723283,
+        "ir_ls": -0.1309794352446955,
+        "ir_ls_annual": -2.0792340751269167,
+        "mls": 0.20176117532200583,
+        "nw_t_rho": -5.951534026282151,
+        "nw_t_ls": -4.640871529474645,
+        "nw_se_rho": 0.016304417753100604,
+        "nw_se_ls": 0.00023769934566518906,
+        "n_days_rho": 1456,
+        "n_days_ls": 1456,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_1d_open_to_open",
+      "skew": 1.6411296566810207,
+      "kurt": 4.562078084967922,
+      "eval_start": "2019-01-01",
+      "eval_end": "2024-12-31",
+      "finite_ratio": 0.7173505225640185
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 7,
+      "n_factors": 8,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.5946685966464244,
+      "top_neighbors": [
+        {
+          "factor_id": "hl_div_amt_smooth20",
+          "name": "hl_div_amt_smooth20",
+          "cs_corr": -0.5946685966464244,
+          "expr": "avg_hl = TS_MEAN(SUBTRACT($adj_high, $adj_low), 20)\navg_close = TS_MEAN($adj_close, 20)\navg_hl_pct = DIVIDE(avg_hl, avg_close)\navg_amt = TS_MEAN($amount, 20)\nraw = DIVIDE(avg_hl_pct, ADD(avg_amt, 1))\nLOG(ADD(raw, 1e-12))"
+        },
+        {
+          "factor_id": "idio_qspread_win_20",
+          "name": "idio_qspread_win_20",
+          "cs_corr": 0.15154913926092134,
+          "expr": "ret = $ret\nidio_ret = CS_DEMEAN(ret)\nret_win = CS_WINSORIZE(idio_ret, 0.01, 0.99)\nq90 = TS_QUANTILE(ret_win, 20, 0.9)\nq10 = TS_QUANTILE(ret_win, 20, 0.1)\nraw_spread = SUBTRACT(q90, q10)\nCS_NEUTRALIZE(raw_spread, CS_BUCKET(LOG($float_cap), 3))"
+        },
+        {
+          "factor_id": "gap_streak_weighted_rank",
+          "name": "gap_streak_weighted_rank",
+          "cs_corr": -0.07785233222250788,
+          "expr": "prev_close = DELAY($adj_close, 1)\ngap = DIVIDE(SUBTRACT($adj_open, prev_close), prev_close)\ngap_up = IF_THEN_ELSE(GT(gap, 0), gap, 0)\ngap_dn = IF_THEN_ELSE(LT(gap, 0), ABS(gap), 0)\nup_streak = TS_STREAK(GT(gap, 0))\ndn_streak = TS_STREAK(LT(gap, 0))\nup_weighted = MULTIPLY(CAST(up_streak, 'float'), gap_up)\ndn_weighted = MULTIPLY(CAST(dn_streak, 'float'), gap_dn)\nstreak_net = SUBTRACT(up_weighted, dn_weighted)\nstreak_rank = RANK(streak_net)\nstreak_rank_ema3 = EMA(streak_rank, 3)\nCS_NEUTRALIZE(streak_rank_ema3, CS_BUCKET(LOG($float_cap), 3))"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "amihud_log_30d_winsor": {
+    "name": "amihud_log_30d_winsor",
+    "comment": "Amihud illiquidity proxy: daily absolute return divided by dollar turnover, log-transformed, winsorized at 1%/99%, and smoothed over 20 days (raw window in implementation uses 30-day lookback to match effective smoothing). Higher values indicate less liquid/higher price impact stocks; lower values indicate more liquid stocks. In this A-share daily panel, more liquid stocks (low Amihud) tend to earn higher next-day open-to-open returns (positive IC). Cross-sectionally z-scored. Robust across train and val with strong monotonic decile spread and high coverage.",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/amihud_log_30d_winsor.dsl",
+    "ingest_config": {
+      "train_start": "2019-01-01",
+      "ingest_start": "2019-01-01",
+      "ingest_end": "2024-12-31",
+      "label_col": "label_1d_open_to_open"
+    },
+    "ingested_at": "2026-07-01T16:59:17.535106+00:00",
+    "ingest_metrics": {
+      "coverage": 0.999851927285518,
+      "ic": 0.014780469764999792,
+      "icir": 0.1689962227102664,
+      "rank_ic": 0.015616857945947332,
+      "n_days": 1456,
+      "cs_pearson_autocorr": 0.9921186278047275,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": -2.1e-05
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.000219
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.000327
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.000503
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.000615
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.000697
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.000778
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.000952
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.000946
+        },
+        {
+          "decile": 10,
+          "mean_label": 0.00121
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": 0.10247252747252747,
+        "mean_ls": 0.0012257134058327073,
+        "ir_ls": 0.13028410006199537,
+        "ir_ls_annual": 2.0681959712993674,
+        "mls": 0.21193326848754507,
+        "nw_t_rho": 5.447300180862563,
+        "nw_t_ls": 4.466216276901322,
+        "nw_se_rho": 0.01881161751146625,
+        "nw_se_ls": 0.00027444112193400364,
+        "n_days_rho": 1456,
+        "n_days_ls": 1456,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_1d_open_to_open",
+      "skew": -0.23124618709744238,
+      "kurt": 0.298366005763965,
+      "eval_start": "2019-01-01",
+      "eval_end": "2024-12-31",
+      "finite_ratio": 0.7183493862494456
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 8,
+      "n_factors": 9,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.7887964311609298,
+      "top_neighbors": [
+        {
+          "factor_id": "hl_div_amt_smooth20",
+          "name": "hl_div_amt_smooth20",
+          "cs_corr": 0.7887964311609298,
+          "expr": "avg_hl = TS_MEAN(SUBTRACT($adj_high, $adj_low), 20)\navg_close = TS_MEAN($adj_close, 20)\navg_hl_pct = DIVIDE(avg_hl, avg_close)\navg_amt = TS_MEAN($amount, 20)\nraw = DIVIDE(avg_hl_pct, ADD(avg_amt, 1))\nLOG(ADD(raw, 1e-12))"
+        },
+        {
+          "factor_id": "vpin_amount_60d_2m_min2",
+          "name": "vpin_amount_60d_2m_min2",
+          "cs_corr": -0.5175624522476836,
+          "expr": "vpin = VOLUME_CLOCK_VPIN($adj_close, $amount, 60, 2000000, 'tick', 2, 20)\nCS_ZSCORE(vpin)"
+        },
+        {
+          "factor_id": "idio_qspread_win_20",
+          "name": "idio_qspread_win_20",
+          "cs_corr": -0.07675178612131603,
+          "expr": "ret = $ret\nidio_ret = CS_DEMEAN(ret)\nret_win = CS_WINSORIZE(idio_ret, 0.01, 0.99)\nq90 = TS_QUANTILE(ret_win, 20, 0.9)\nq10 = TS_QUANTILE(ret_win, 20, 0.1)\nraw_spread = SUBTRACT(q90, q10)\nCS_NEUTRALIZE(raw_spread, CS_BUCKET(LOG($float_cap), 3))"
+        }
+      ]
+    },
+    "source": "submit"
+  }
+}

@@ -234,6 +234,64 @@ class FactorZoo:
         )
         return col_idx
 
+    def extend_factor_values(
+        self,
+        factor_id: str,
+        tail: np.ndarray,
+        *,
+        old_n: int,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """尾部追加因子值：保留 [0:old_n) 前缀，写入 tail 至新 manifest.n_rows。"""
+        entry = self.catalog.get(factor_id)
+        if entry is None:
+            raise KeyError(f"因子不存在: {factor_id}")
+
+        tail = np.asarray(tail, dtype=np.float32)
+        new_n = self.manifest.n_rows
+        if old_n + len(tail) != new_n:
+            raise ValueError(
+                f"extend 长度不匹配: old_n={old_n} + tail={len(tail)} != n_rows={new_n}"
+            )
+
+        path = self.paths.factor_values_path(factor_id)
+        if path.is_file():
+            file_n = path.stat().st_size // np.dtype(np.float32).itemsize
+            if file_n != old_n:
+                raise ValueError(f"memmap 文件长度 {file_n} != old_n {old_n}")
+            prefix = np.array(
+                np.memmap(path, dtype=np.float32, mode="r", shape=(old_n,)),
+                dtype=np.float32,
+                copy=True,
+            )
+        else:
+            prefix = np.full(old_n, np.nan, dtype=np.float32)
+
+        full = np.concatenate([prefix, tail.astype(np.float32, copy=False)])
+        _create_memmap_1d(path, new_n, full)
+
+        col_idx = entry.col_idx
+        summary = _open_sample_summary_memmap(
+            self.paths.resolve_sample_summary_memmap(),
+            self.manifest.max_factors,
+            self.index.n_sample_rows,
+            mode="r+",
+        )
+        summary[col_idx, :] = full[self.index.sample_row_ids]
+        summary.flush()
+
+        update_extra = dict(entry.extra or {})
+        if extra is not None:
+            update_extra.update(extra)
+        self.catalog.update(
+            factor_id,
+            name=entry.name,
+            expr=entry.expr,
+            status=entry.status,
+            finite_count=_finite_count(full),
+            extra=update_extra,
+        )
+
     @property
     def n_factors(self) -> int:
         return self.catalog.n_factors

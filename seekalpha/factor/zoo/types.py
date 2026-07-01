@@ -168,6 +168,10 @@ class FactorLibraryPaths:
         return self.meta_dir / "factors.parquet"
 
     @property
+    def expressions_dir(self) -> Path:
+        return self.root / "expressions"
+
+    @property
     def similarity_dir(self) -> Path:
         return self.root / "similarity"
 

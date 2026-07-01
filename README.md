@@ -1,145 +1,62 @@
 # SeekAlpha
 
+多因子策略研究框架（Tushare 数据 + DSL 因子 + FactorZoo + 可选 LLM 挖掘）。
 
+**完整操作手册**：[docs/operations_manual.md](docs/operations_manual.md)
 
-多因子策略研究 + 实盘框架
+## 新人上手（最小路径）
 
-
-
-## 快速开始
-
-
-
-```bash
-
-# 安装依赖（需 uv）
-
+```powershell
+# 1. 依赖
 uv sync
 
+# 2. 环境变量
+copy .env.example .env
+# 编辑 .env：至少填 TUSHARE_TOKEN
 
-
-# 配置 Tushare Token（项目根目录 .env）
-
-# TUSHARE_TOKEN=your_token
-
-
-
-# 构建 ZZ1000 Panel（默认 universe=zz1000，成分并集 + 批量拉取）
-
+# 3. 构建 Panel（本地生成，不入 Git）
 uv run python scripts/build_panel.py --start 2024-01-01 --end 2024-12-31
 
-
-
-# 全市场按日拉取（较慢）
-
-uv run python scripts/build_panel.py --start 2024-01-01 --end 2024-01-31 --universe none
-
-
-
-# 增量更新
-
-uv run python scripts/build_panel.py --update
-
-```
-
-
-
-## 目录结构
-
-
-
-```
-
-seekalpha/
-
-  core/       # 类型、配置、路径
-
-  data/       # Tushare + Panel parquet
-
-  dsl/        # 因子 DSL（来自 AlphaAgent-Stock）
-
-  factor/     # 评估、入库、factorzoo
-
-scripts/      # CLI 入口
-
-configs/      # YAML / registry 配置
-
-artifacts/    # 运行时产物（panel、factorzoo、bundle）
-
-tests/        # 分层单测
-
-```
-
-
-
-## Panel 存储
-
-
-
-- 历史全量：`artifacts/panel/panel_1d.parquet`
-
-- 实盘增量：`scripts/build_panel.py --update`（检测 panel 内全部缺失日，按股票池批量回填，与全量 build 相同拉数方式）
-
-- Schema 与 AlphaAgent-Stock 一致，研究/实盘共用
-
-
-
-## 因子库（factorzoo）
-
-
-
-```bash
-
-# 1. 构建 panel（若尚未有）
-
-uv run python scripts/build_panel.py --start 2024-01-01 --end 2024-12-31
-
-
-
-# 2. 初始化因子库（绑定 panel 行索引）
-
+# 4. 初始化因子库 + 从 Git 里的 .dsl 重建 memmap
 uv run python scripts/init_factorlib.py
+uv run python scripts/ingest_factors.py --expr-dir artifacts/factorzoo/stock_1d/expressions
 
-
-
-# 3. 单因子 IC 报告（全量 panel 求值，--start-time 仅切 metrics）
-uv run python scripts/eval_factor.py --expr-file examples/factors/ma_dev.dsl --report
-
-# 4. 批量入库
-uv run python scripts/ingest_factors.py --registry configs/factors/registry.example.json
-
-# 5. 查看 catalog
+# 5. 验证
 uv run python scripts/factorlib_info.py
+uv run python scripts/eval_factor.py --expr-file artifacts/factorzoo/stock_1d/expressions/idio_qspread_win_20.dsl --report
 ```
 
-指标说明见 [docs/factor_metrics.md](docs/factor_metrics.md)。
+> Panel（~600 万行 parquet）和 factorzoo memmap **不在 Git 里**；协作者 clone 后需本地 build panel + `ingest --expr-dir` 重建数值库。
 
+## 因子 Git 同步（团队）
 
+| 操作 | 命令 |
+|------|------|
+| 入库后导出 DSL | `uv run python scripts/sync_factor_exprs.py` |
+| 提交 | `git add artifacts/factorzoo/stock_1d/expressions/*.dsl` |
+| 拉取后重建 memmap | `uv run python scripts/ingest_factors.py --expr-dir artifacts/factorzoo/stock_1d/expressions --overwrite` |
+
+单因子：`ingest_factors.py --expr-file ...`；评估：`eval_factor.py --report --label-col label_10d_close_to_close`。
 
 ## 因子挖掘（可选）
 
-
-
-```bash
-
+```powershell
 uv sync --extra mining
-
-# 配置 OPENAI_API_KEY / OPENAI_API_BASE / MODEL（.env）
-
-uv run python scripts/factor_mining.py --panel artifacts/panel/panel_1d.parquet
-
+# .env 填 OPENAI_API_KEY、MODEL
+uv run python scripts/factor_mining_agentscope.py --panel artifacts/panel/panel_1d.parquet
 ```
-
-
 
 ## 测试
 
-
-
-```bash
-
+```powershell
 uv run pytest tests/ -q
-
 ```
 
+## 目录
 
+```
+seekalpha/     # 核心包
+scripts/       # CLI
+artifacts/     # panel、factorzoo（仅 expressions/*.dsl 入 Git）
+docs/          # 操作手册、指标说明
+```

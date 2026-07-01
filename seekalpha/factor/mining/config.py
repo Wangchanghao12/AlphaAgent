@@ -26,5 +26,5 @@ class MiningConfig:
     similar_top_k: int = 3
     ingest_overwrite: bool = False
     auto_realign_panel: bool = True
-    registry_path: Path = Path("data/factors/mining_delivered_registry.json")
-    expr_dir: Path = Path("data/factors/expressions")
+    registry_path: Path = Path("artifacts/factorzoo/stock_1d/mining_delivered_registry.json")
+    expr_dir: Path = Path("artifacts/factorzoo/stock_1d/expressions")

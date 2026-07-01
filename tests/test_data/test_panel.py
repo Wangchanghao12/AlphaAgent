@@ -439,6 +439,24 @@ def test_panel_missing_trade_dates_empty_when_already_latest():
 
 
 
+def test_label_nd_close_to_close_formula():
+    dates = pd.date_range("2024-01-02", periods=15, freq="B")
+    closes = np.arange(10.0, 25.0)  # 10, 11, ..., 24
+    idx = pd.MultiIndex.from_product([dates, ["X.SH"]], names=["datetime", "instrument"])
+    panel = pd.DataFrame({"adj_close": closes}, index=idx)
+
+    from seekalpha.data.panel import _calc_label_nd_close_to_close
+
+    label_1d = _calc_label_nd_close_to_close(panel["adj_close"], 1)
+    # T=day0: (close[T+2]-close[T+1])/(close[T+1]) = (12-11)/11
+    assert np.isclose(label_1d.iloc[0], (12.0 - 11.0) / 11.0)
+
+    label_10d = _calc_label_nd_close_to_close(panel["adj_close"], 10)
+    # T=day0: (close[T+11]-close[T+1])/(close[T+1]) = (21-11)/11
+    assert np.isclose(label_10d.iloc[0], (21.0 - 11.0) / 11.0)
+    assert label_10d.iloc[-10:].isna().all()
+
+
 def test_save_load_panel_roundtrip(mini_panel, tmp_path):
 
     path = tmp_path / "panel.parquet"
