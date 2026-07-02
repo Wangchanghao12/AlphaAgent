@@ -27,11 +27,13 @@ uv run python scripts/eval_factor.py --expr-file your.dsl --report --start-time 
 
 | 列名 | 定义（简化） |
 |------|----------------|
-| `label_1d_open_to_open` | 从 **T+1 开盘** 到 **T+2 开盘** 的收益率（默认） |
-| `label_1d_close_to_close` | 从 **T+1 收盘** 到 **T+2 收盘**（持有 1 个交易日） |
-| `label_10d_close_to_close` | 从 **T+1 收盘** 到 **T+11 收盘**（持有 10 个交易日，适合基本面因子） |
+| `label_1d_open_to_open` | 从 **T+1 开盘** 到 **T+2 开盘** 的收益率（CLI 默认） |
+| `label_1d_close_to_close` | 从 **T+1 收盘** 到 **T+2 收盘**（持有 1 个交易日；**推荐价量因子**） |
+| `label_10d_close_to_close` | 从 **T+1 收盘** 到 **T+11 收盘**（持有 10 个交易日；**推荐基本面因子**） |
 | `label_20d_close_to_close` | 从 **T+1 收盘** 到 **T+21 收盘**（持有 20 个交易日） |
 | `ret` | 当日相对前一日收盘的日收益率（多用于描述性统计，作 label 较少） |
+
+**选用建议**：评估 / 挖掘时用 `--label-col` 显式指定——基本面 → `label_10d_close_to_close`；价量 → `label_1d_close_to_close`。
 
 ---
 

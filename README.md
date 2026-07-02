@@ -40,7 +40,14 @@ uv run python scripts/eval_factor.py --expr-file artifacts/factorzoo/stock_1d/ex
 | 提交 | `git add artifacts/factorzoo/stock_1d/expressions/*.dsl` |
 | 拉取后重建 memmap | `uv run python scripts/ingest_factors.py --expr-dir artifacts/factorzoo/stock_1d/expressions --overwrite` |
 
-单因子：`ingest_factors.py --expr-file ...`；评估：`eval_factor.py --report --label-col label_10d_close_to_close`。
+**`--label-col` 选用**：基本面因子 → `label_10d_close_to_close`；价量因子 → `label_1d_close_to_close`。
+
+```powershell
+# 基本面
+uv run python scripts/eval_factor.py --expr-file your.dsl --report --label-col label_10d_close_to_close
+# 价量
+uv run python scripts/eval_factor.py --expr-file your.dsl --report --label-col label_1d_close_to_close
+```
 
 ## 因子挖掘（可选）
 
@@ -48,7 +55,12 @@ uv run python scripts/eval_factor.py --expr-file artifacts/factorzoo/stock_1d/ex
 uv sync --extra mining
 # .env 填 OPENAI_API_KEY、MODEL
 # Panel 需含 funda_* 列（build_panel --enrich-only 或 --with-fundamentals）
+
+# 基本面挖掘
 uv run python scripts/factor_mining_agentscope.py --panel artifacts/panel/panel_1d.parquet --label-col label_10d_close_to_close
+
+# 价量挖掘
+uv run python scripts/factor_mining_agentscope.py --panel artifacts/panel/panel_1d.parquet --label-col label_1d_close_to_close
 ```
 
 ## 测试

@@ -57,4 +57,6 @@ def test_system_prompt_includes_session_label() -> None:
     assert "本次会话 label 列：`label_10d_close_to_close`" in prompt
     assert "10 日持有" in prompt
     assert "长持有 label 提示" in prompt
+    assert "label 选用建议" in prompt
+    assert "label_1d_close_to_close" in prompt
     assert "仅作**相对参考**" in prompt or "相对参考" in prompt

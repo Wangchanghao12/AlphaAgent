@@ -10,8 +10,8 @@ from seekalpha.factor.types import DEFAULT_LABEL_COL
 
 _LABEL_DESCRIPTIONS: dict[str, str] = {
     "label_1d_open_to_open": "T+1 开盘 → T+2 开盘（短周期 alpha，默认）",
-    "label_1d_close_to_close": "T+1 收盘 → T+2 收盘（1 日持有）",
-    "label_10d_close_to_close": "T+1 收盘 → T+11 收盘（10 日持有，适合基本面/慢因子）",
+    "label_1d_close_to_close": "T+1 收盘 → T+2 收盘（1 日持有，**适合价量/短周期因子**）",
+    "label_10d_close_to_close": "T+1 收盘 → T+11 收盘（10 日持有，**适合基本面/慢因子**）",
     "label_20d_close_to_close": "T+1 收盘 → T+21 收盘（20 日持有，适合基本面/慢因子）",
 }
 
@@ -112,6 +112,7 @@ FACTOR_MINING_INTERFACE_PROMPT = """你是一名量化研究自主智能体，�
 
 **使用建议**（基本面/慢因子）：
 
+- 挖掘 / 评估基本面因子时，启动 CLI 使用 **`--label-col label_10d_close_to_close`**（价量类用 `label_1d_close_to_close`，见下文 label 选用表）。
 - 基本面列在日频上**阶跃+持有**，`TS_PCTCHANGE($funda_roe, 20)` 等窗口单位为**交易日**；约 60 日 ≈ 一季。
 - 截面组合建议 `CS_NEUTRALIZE(..., CS_BUCKET(LOG($float_cap), 10))` 市值中性；比率类可先 `CS_WINSORIZE` 再 `RANK` 截面排序。
 - 事件窗示例：`TS_PCTCHANGE($xxx, $funda_days_since_disclose)`（披露生效后变量 xxx 的变化）。
@@ -326,6 +327,19 @@ def _label_section_markdown(label_col: str) -> str:
         lines.append(f"| `{name}` | {meaning}{mark} |")
     if label_col not in _LABEL_DESCRIPTIONS:
         lines.append(f"| `{label_col}` | {desc} **← 本次** |")
+    lines.extend(
+        [
+            "",
+            "**label 选用建议**（`eval_factor` / 挖掘 CLI 的 `--label-col`）：",
+            "",
+            "| 因子类型 | 推荐 label |",
+            "|----------|------------|",
+            "| 基本面（主要用 `$funda_*`） | `label_10d_close_to_close` |",
+            "| 价量（OHLC / `$ret` / `$volume` / 筹码等） | `label_1d_close_to_close` |",
+            "",
+            "本次会话已配置为上表「本次」行；勿在 tool 参数中切换 label。",
+        ]
+    )
     if label_col.startswith("label_") and "d_close_to_close" in label_col and label_col not in (
         "label_1d_close_to_close",
     ):

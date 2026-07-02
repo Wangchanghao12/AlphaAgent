@@ -51,10 +51,17 @@ MODEL=gpt-5.5                  # 或 deepseek-chat 等
 
 | 项 | 默认值 |
 |----|--------|
-| label | `label_1d_open_to_open`（T+1 开盘 → T+2 开盘收益） |
+| label（脚本默认） | `label_1d_open_to_open`（T+1 开盘 → T+2 开盘收益） |
 | train | 2019-01-01 ~ 2021-12-31 |
 | val | 2022-01-01 ~ 2024-12-31 |
 | 截面查重阈值 | `\|cs_corr\| < 0.8` |
+
+**`--label-col` 选用建议**（评估 / 挖掘时显式指定）：
+
+| 因子类型 | 推荐 label |
+|----------|------------|
+| 基本面（主要用 `funda_*`） | `label_10d_close_to_close` |
+| 价量（OHLC / `ret` / `volume` / 筹码等） | `label_1d_close_to_close` |
 
 指标含义见 [factor_metrics.md](./factor_metrics.md)。
 
@@ -112,10 +119,13 @@ uv run python scripts/build_panel.py --update --dates 2026-06-27 2026-06-30 --un
 uv run python -c "from seekalpha.core.paths import PANEL_PATH; from seekalpha.data.panel import load_panel, save_panel, backfill_panel_derived_columns; p = backfill_panel_derived_columns(load_panel(PANEL_PATH)); save_panel(p, PANEL_PATH); print('ok', [c for c in p.columns if c.startswith('label_')])"
 ```
 
-基本面因子常用 10/20 日持有 label，评估时指定：
+评估时按因子类型指定 `--label-col`：
 
 ```powershell
+# 基本面
 uv run python scripts/eval_factor.py --expr-file your.dsl --report --label-col label_10d_close_to_close
+# 价量
+uv run python scripts/eval_factor.py --expr-file your.dsl --report --label-col label_1d_close_to_close
 ```
 
 ### 1.4 季频基本面（PIT 展开）
@@ -149,7 +159,9 @@ uv run python scripts/build_panel.py --update --universe zz1000 --with-fundament
 
 **Panel 内基本面列（当前，`fina_indicator`）：**  
 `funda_roe`、`funda_roa`、`funda_debt_to_assets`、`funda_eps`、`funda_bps`、`funda_netprofit_yoy`、`funda_or_yoy`、`funda_grossprofit_margin`、`funda_fs_working_capital`、`funda_fs_ebit` 等；披露特征 `funda_days_since_disclose`、`funda_days_since_quarter_start`。  
-挖掘 agent 系统提示词已包含字段说明；基本面因子建议 `--label-col label_10d_close_to_close`。
+挖掘 agent 系统提示词已包含字段说明。
+
+**label 选用**：基本面因子 `--label-col label_10d_close_to_close`；价量因子 `--label-col label_1d_close_to_close`。
 
 ### 1.5 Panel 复权修补（可选）
 
