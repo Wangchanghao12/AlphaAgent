@@ -17,6 +17,10 @@ copy .env.example .env
 # 3. 构建 Panel（本地生成，不入 Git）
 uv run python scripts/build_panel.py --start 2024-01-01 --end 2024-12-31
 
+# 可选：季频基本面（先 fetch，再 enrich；或 --with-fundamentals 一步完成）
+uv run python scripts/fetch_fundamentals.py --start 2015-01-01 --end 2026-12-31
+uv run python scripts/build_panel.py --enrich-only
+
 # 4. 初始化因子库 + 从 Git 里的 .dsl 重建 memmap
 uv run python scripts/init_factorlib.py
 uv run python scripts/ingest_factors.py --expr-dir artifacts/factorzoo/stock_1d/expressions
@@ -43,7 +47,8 @@ uv run python scripts/eval_factor.py --expr-file artifacts/factorzoo/stock_1d/ex
 ```powershell
 uv sync --extra mining
 # .env 填 OPENAI_API_KEY、MODEL
-uv run python scripts/factor_mining_agentscope.py --panel artifacts/panel/panel_1d.parquet
+# Panel 需含 funda_* 列（build_panel --enrich-only 或 --with-fundamentals）
+uv run python scripts/factor_mining_agentscope.py --panel artifacts/panel/panel_1d.parquet --label-col label_10d_close_to_close
 ```
 
 ## 测试
@@ -57,6 +62,6 @@ uv run pytest tests/ -q
 ```
 seekalpha/     # 核心包
 scripts/       # CLI
-artifacts/     # panel、factorzoo（仅 expressions/*.dsl 入 Git）
+artifacts/     # panel、fundamental、factorzoo（仅 expressions/*.dsl 入 Git）
 docs/          # 操作手册、指标说明
 ```

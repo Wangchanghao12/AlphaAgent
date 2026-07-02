@@ -14,6 +14,7 @@ skills/
 
 # 本地大文件（可重建）
 artifacts/panel/
+artifacts/fundamental/
 logs/
 
 # factorzoo：同步 expressions/*.dsl + 挖掘元数据；memmap / parquet 不入库

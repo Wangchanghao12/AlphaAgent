@@ -76,6 +76,46 @@ FACTOR_MINING_INTERFACE_PROMPT = """你是一名量化研究自主智能体，�
 | `$ret` | 日 adj_close pct_change（按 instrument） |
 | `$is_trade` / `$not_st` | 可交易 / 非 ST 标记 |
 
+---
+
+### 基本面与披露日历（`build_panel --with-fundamentals` 并入）
+
+季频 `fina_indicator` 经**严格 PIT** 展开为日频：财报公告日 D **不可用**，**D 的下一交易日**起该期字段才可引用；两期之间 **ffill** 保持最近已披露值。披露前为 NaN 属正常，勿当缺失错误。
+
+**财务指标**（`fina_indicator` → 日频，前缀 `funda_`）：
+
+| 字段 | 说明 |
+|------|------|
+| `$funda_roe` / `$funda_roa` | 净资产收益率 / 总资产报酬率 |
+| `$funda_debt_to_assets` | 资产负债率 |
+| `$funda_eps` / `$funda_bps` | 每股收益 / 每股净资产 |
+| `$funda_grossprofit_margin` / `$funda_netprofit_margin` | 毛利率 / 净利率 |
+| `$funda_profit_dedt` | 扣非净利润 |
+| `$funda_ocfps` | 每股经营现金流 |
+| `$funda_current_ratio` / `$funda_quick_ratio` | 流动比率 / 速动比率 |
+| `$funda_netprofit_yoy` / `$funda_or_yoy` / `$funda_tr_yoy` | 归母净利 / 营收 / 营业总收入同比（%） |
+
+**财报科目子集**（前缀 `funda_fs_`，同为 PIT 日频；后续可能扩展更多三大表科目）：
+
+| 字段 | 说明 |
+|------|------|
+| `$funda_fs_working_capital` | 营运资本 |
+| `$funda_fs_ebit` | 息税前利润 |
+| `$funda_fs_rd_exp` | 研发费用（部分股票为 NaN） |
+
+**披露日历特征**：
+
+| 字段 | 说明 |
+|------|------|
+| `$funda_days_since_disclose` | 距**上一期**财报披露**生效日**的交易日数（生效日=0）；严格 PIT |
+| `$funda_days_since_quarter_start` | 距当前季报区间首日（1/1、4/1、7/1、10/1）的交易日数 |
+
+**使用建议**（基本面/慢因子）：
+
+- 基本面列在日频上**阶跃+持有**，`TS_PCTCHANGE($funda_roe, 20)` 等窗口单位为**交易日**；约 60 日 ≈ 一季。
+- 截面组合建议 `CS_NEUTRALIZE(..., CS_BUCKET(LOG($float_cap), 10))` 市值中性；比率类可先 `CS_WINSORIZE` 再 `RANK` 截面排序。
+- 事件窗示例：`TS_PCTCHANGE($xxx, $funda_days_since_disclose)`（披露生效后变量 xxx 的变化）。
+
 > 行尾可写 `#` 注释；字符串内 `#` 保留。
 
 ---
@@ -189,7 +229,7 @@ tri_gap = CHIP_COM_W_GAP($adj_close, $adj_low, $adj_high, $volume, 40, $vwap, 64
 ### 行为准则
 
 1. 每轮先归因上一轮结果，再设计下一代；避免仅改窗口长度的同质批次。
-2. 并行候选应跨越不同信息维度：价格动量/均值回归、波动、量价、市值、周线结构（`@1w`）等。
+2. 并行候选应跨越不同信息维度：价格动量/均值回归、波动、量价、市值、**基本面（`funda_*`）**、周线结构（`@1w`）等。
 3. 连续 2 轮无改善时，强制引入未用过的信息源或算子族。
 4. 发起 tool_calls 前完成思考；**不要**停在解释或征询用户下一步。
 5. 确认保留级候选后，**必须**调用 **`submit_factor`** 交付；`comment` 须清晰描述因子逻辑，勿空泛。
@@ -212,6 +252,13 @@ def _tool_call_examples_section(*, include_submit: bool = True) -> str:
             "arguments": {
                 "multi_line_expr": "ma_w = TS_MEAN($adj_close@1w, 4)\nSUBTRACT($adj_close, ma_w)",
                 "factor_name": "ma_w_dev",
+            },
+        },
+        {
+            "name": "eval_on_train_set",
+            "arguments": {
+                "multi_line_expr": "roe_z = CS_ZSCORE(CS_WINSORIZE($funda_roe, 0.01, 0.99))\ngro = CS_ZSCORE(CS_WINSORIZE($funda_netprofit_yoy, 0.01, 0.99))\nCS_NEUTRALIZE(MULTIPLY(roe_z, gro), CS_BUCKET(LOG($float_cap), 10))",
+                "factor_name": "funda_roe_growth_neutral",
             },
         },
         {
@@ -240,7 +287,7 @@ def _tool_call_examples_section(*, include_submit: bool = True) -> str:
         )
     body = json.dumps(examples, ensure_ascii=False, indent=2)
     note = (
-        "上表为同轮并行 3 条 `eval_on_train_set` 示例（动量、周线偏离、收益秩）。"
+        "上表为同轮并行 `eval_on_train_set` 示例（动量、周线偏离、基本面、收益秩）。"
         "建议每轮 3～5 条并行；仅当 train 有满意候选时，偶尔对少数 factor 做 val 抽检。"
         + submit_note
     )
@@ -267,7 +314,7 @@ def _label_section_markdown(label_col: str) -> str:
     desc = _LABEL_DESCRIPTIONS.get(label_col, "panel 内预计算的前瞻收益列")
     lines = [
         f"**本次会话 label 列：`{label_col}`** — {desc}。",
-        "所有 `summary.ic` / `rank_ic` / `decile_mean_label` / `mls_fmb` 均相对该列计算；**勿在 tool 参数中切换 label**（由 CLI `--label-col` 配置）。",
+        "所有 `summary.ic` / `rank_ic` / `decile_mean_label` / `mls_fmb` 均相对该列计算。",
         "",
         "panel 内常用 label（启动时可 `--label-col` 切换）：",
         "",

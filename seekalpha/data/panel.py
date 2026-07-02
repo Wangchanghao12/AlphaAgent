@@ -1132,9 +1132,23 @@ def build_panel(
 
     verbose: bool = True,
 
+    with_fundamentals: bool = False,
+
+    quarterly_path: Path | str | None = None,
+
+    disclosure_path: Path | str | None = None,
+
+    include_disclosure_features: bool = True,
+
 ) -> pd.DataFrame:
 
     """Tushare 拉数 → 构建 panel → 可选写出 parquet。"""
+    from seekalpha.core.paths import DISCLOSURE_CALENDAR_PATH, FUNDAMENTAL_QUARTERLY_PATH
+
+    if quarterly_path is None:
+        quarterly_path = FUNDAMENTAL_QUARTERLY_PATH
+    if disclosure_path is None:
+        disclosure_path = DISCLOSURE_CALENDAR_PATH
 
     if verbose:
 
@@ -1169,6 +1183,16 @@ def build_panel(
 
 
     panel = build_panel_from_hq(hq, universe_mask=universe_mask)
+
+    if with_fundamentals:
+        from seekalpha.data.fundamental import enrich_panel_fundamentals
+
+        panel = enrich_panel_fundamentals(
+            panel,
+            quarterly_path=quarterly_path,
+            disclosure_path=disclosure_path,
+            include_disclosure_features=include_disclosure_features,
+        )
 
     if out_path is not None:
 

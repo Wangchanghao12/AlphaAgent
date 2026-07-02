@@ -1,6 +1,6 @@
 # AlphaSeeker 开发记录
 
-> 截至 2026-07-01。统一 monorepo `seekalpha`：Tushare 数据源 + AlphaAgent DSL + FactorZoo，目标覆盖因子研究 → 模型 → 回测 → 实盘。
+> 截至 2026-07-02。统一 monorepo `seekalpha`：Tushare 数据源 + AlphaAgent DSL + FactorZoo，目标覆盖因子研究 → 模型 → 回测 → 实盘。
 
 ---
 
@@ -20,6 +20,14 @@
 - ST：`stock_st` 日度 `is_st`；`float_cap`：按 `trade_date` 拉 `daily_basic`
 - 复权：`adj_* = OHLC × adjfactor`，新增 `adj_vwap`；建议 `--batch-size 20` 避免 6000 行截断
 - 当前 Panel：~618 万行 × 20 列，2015-01 ~ 2026-06，与 `pro_bar(hfq)` 在 2 位小数内一致
+
+### 季频基本面（PIT）
+
+- `fetch_fundamentals.py`：`fina_indicator` / `fina_indicator_vip` 拉全市场季频 → `artifacts/fundamental/`
+- `fundamental.py`：披露日 T+1 生效 PIT 展开（port AlphaAgent）、披露距离特征
+- `build_panel.py`：`--with-fundamentals` / `--enrich-only` 并入 panel
+- 当前字段：`funda_roe`、`funda_netprofit_yoy`、`funda_fs_ebit` 等 17 指标 + 2 披露日历列
+- 挖掘 prompt 已文档化 `$funda_*` 用法；单测 `test_fundamental_pit` / `test_fundamental_fetch`
 
 ### 因子研究（Phase 2）
 
@@ -60,6 +68,8 @@
 
 ### Phase 5 — 优化（可选）
 
+- [ ] 三大表全量 `funda_fs_*` 科目（income/balancesheet/cashflow）
+- [ ] `daily_basic` 扩展 PE/PB 等日频估值列
 - [ ] 回测性能：预计算 alpha 表、向量化 PnL
 - [ ] 时点成分股 mask（回测/实盘过滤当日 zz1000）
 - [ ] Panel 原子写入、断点续传 build

@@ -5,6 +5,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS_DIR = ROOT / "artifacts"
 PANEL_PATH = ARTIFACTS_DIR / "panel" / "panel_1d.parquet"
+FUNDAMENTAL_DIR = ARTIFACTS_DIR / "fundamental"
+FUNDAMENTAL_QUARTERLY_PATH = FUNDAMENTAL_DIR / "quarterly.parquet"
+DISCLOSURE_CALENDAR_PATH = FUNDAMENTAL_DIR / "disclosure_calendar.parquet"
 FACTORZOO_DIR = ARTIFACTS_DIR / "factorzoo" / "stock_1d"
 FACTOR_EXPR_DIR = FACTORZOO_DIR / "expressions"
 CONFIGS_DIR = ROOT / "configs"

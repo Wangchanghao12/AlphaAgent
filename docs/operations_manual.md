@@ -39,7 +39,9 @@ MODEL=gpt-5.5                  # 或 deepseek-chat 等
 
 | 路径 | 说明 |
 |------|------|
-| `artifacts/panel/panel_1d.parquet` | 日频 Panel |
+| `artifacts/panel/panel_1d.parquet` | 日频 Panel（量价 + label；可选 `funda_*` 基本面列） |
+| `artifacts/fundamental/quarterly.parquet` | 季频财务指标缓存（全市场 VIP 拉取） |
+| `artifacts/fundamental/disclosure_calendar.parquet` | 财报披露日历（PIT 生效日） |
 | `artifacts/factorzoo/stock_1d/` | 因子库（本地 memmap；**Git 仅同步** `expressions/*.dsl` 等少量元数据） |
 | `artifacts/factorzoo/stock_1d/expressions/` | 已入库因子 DSL（**进 Git**，协作用源码） |
 | `examples/factors/*.dsl` | 示例 / 手写 DSL（未入库） |
@@ -116,7 +118,40 @@ uv run python -c "from seekalpha.core.paths import PANEL_PATH; from seekalpha.da
 uv run python scripts/eval_factor.py --expr-file your.dsl --report --label-col label_10d_close_to_close
 ```
 
-### 1.3 Panel 复权修补（可选）
+### 1.4 季频基本面（PIT 展开）
+
+季频 `fina_indicator` 单独缓存，Panel enrich 时按**披露日 T+1 交易日**严格 PIT 展开为日频 `funda_*` 列（与 AlphaAgent 语义一致）。
+
+**推荐流程（全市场缓存 + zz1000 panel）：**
+
+```powershell
+# 1. 拉季频（VIP 每期 1 次请求，全 A 股落盘；每期 merge 后立即写盘）
+uv run python scripts/fetch_fundamentals.py --start 2015-01-01 --end 2026-12-31
+
+# 积分不足时逐股慢拉（须指定 universe）
+uv run python scripts/fetch_fundamentals.py --start 2015-01-01 --end 2026-12-31 --universe zz1000 --no-vip
+
+# 2a. 新建 panel 时一并 enrich
+uv run python scripts/build_panel.py --start 2015-01-01 --end 2026-06-30 --with-fundamentals
+
+# 2b. 已有 panel，仅补基本面列（不重新拉行情）
+uv run python scripts/build_panel.py --enrich-only
+
+# 2c. 增量更新行情后顺带 refresh 基本面
+uv run python scripts/build_panel.py --update --universe zz1000 --with-fundamentals
+```
+
+| 参数 | 说明 |
+|------|------|
+| `--with-fundamentals` | 构建/更新后 PIT 并入 `funda_*` |
+| `--enrich-only` | 只读已有 panel + 本地 fundamental 缓存 enrich |
+| `--no-disclosure-distance` | 不写入 `funda_days_since_disclose` 等披露距离列 |
+
+**Panel 内基本面列（当前，`fina_indicator`）：**  
+`funda_roe`、`funda_roa`、`funda_debt_to_assets`、`funda_eps`、`funda_bps`、`funda_netprofit_yoy`、`funda_or_yoy`、`funda_grossprofit_margin`、`funda_fs_working_capital`、`funda_fs_ebit` 等；披露特征 `funda_days_since_disclose`、`funda_days_since_quarter_start`。  
+挖掘 agent 系统提示词已包含字段说明；基本面因子建议 `--label-col label_10d_close_to_close`。
+
+### 1.5 Panel 复权修补（可选）
 
 全量 rebuild 后通常不需要；发现 adjfactor 断层时可：
 
@@ -421,11 +456,13 @@ uv run python scripts/factor_mining_agentscope.py `
   --user-message "在种子因子基础上优化 IC 与月度稳健性" `
   --train-start 2019-01-01 --train-end 2021-12-31 `
   --val-start 2022-01-01 --val-end 2024-12-31 `
-  --label-col label_1d_open_to_open `
+  --label-col label_10d_close_to_close `
   --max-cs-corr 0.8 `
   --log-dir logs/factor_mining `
   --quiet
 ```
+
+> Panel 须已 `--with-fundamentals` 或 `--enrich-only` 写入 `funda_*` 列后，agent 方可引用 `$funda_roe` 等变量。
 
 | 参数 | 说明 |
 |------|------|
@@ -526,7 +563,8 @@ uv run pytest tests/test_factor/ tests/test_dsl/ -q
 
 | 脚本 | 用途 |
 |------|------|
-| `build_panel.py` | 拉 Tushare 数据、建/增量 Panel（含 label） |
+| `build_panel.py` | 拉 Tushare 数据、建/增量 Panel（含 label、`--with-fundamentals`） |
+| `fetch_fundamentals.py` | 拉 Tushare 季频 `fina_indicator` → `artifacts/fundamental/` |
 | `repair_panel_adjfactor.py` | 修补异常 adjfactor |
 | `eval_factor.py` | DSL 调试求值 / IC 报告 |
 | `init_factorlib.py` | 初始化 factorzoo |

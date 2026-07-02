@@ -43,6 +43,8 @@ def test_system_prompt_sections() -> None:
     assert "mean_rho" in prompt
     assert "TS_MEAN" in prompt
     assert "@1w" in prompt
+    assert "$funda_roe" in prompt
+    assert "funda_days_since_disclose" in prompt
     assert "tool_calls" in prompt
     bare = build_system_prompt(include_operator_catalog=False)
     assert "未注入算子清单" in bare
