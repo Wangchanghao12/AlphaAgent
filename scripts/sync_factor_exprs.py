@@ -15,9 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from seekalpha.core.paths import FACTORZOO_DIR  # noqa: E402
-from seekalpha.factor import FactorZoo  # noqa: E402
-from seekalpha.factor.expr_store import export_zoo_expressions  # noqa: E402
+from alphaagent.core.paths import FACTORZOO_DIR  # noqa: E402
+from alphaagent.factor import FactorZoo  # noqa: E402
+from alphaagent.factor.expr_store import export_zoo_expressions  # noqa: E402
 
 
 def main() -> int:

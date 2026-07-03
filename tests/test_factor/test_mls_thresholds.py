@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from seekalpha.factor.mining.mls_thresholds import mls_fmb_prompt_thresholds, mls_fmb_thresholds_markdown
-from seekalpha.factor.mining.prompts import build_system_prompt
+from alphaagent.factor.mining.mls_thresholds import mls_fmb_prompt_thresholds, mls_fmb_thresholds_markdown
+from alphaagent.factor.mining.prompts import build_system_prompt
 
 
 def test_mls_fmb_prompt_thresholds_loaded() -> None:

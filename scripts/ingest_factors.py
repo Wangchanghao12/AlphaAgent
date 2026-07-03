@@ -18,9 +18,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from seekalpha.core.paths import FACTOR_REGISTRY_EXAMPLE, FACTORZOO_DIR  # noqa: E402
-from seekalpha.data.panel import load_panel, slice_panel  # noqa: E402
-from seekalpha.factor import (  # noqa: E402
+from alphaagent.core.paths import FACTOR_REGISTRY_EXAMPLE, FACTORZOO_DIR  # noqa: E402
+from alphaagent.data.panel import load_panel, slice_panel  # noqa: E402
+from alphaagent.factor import (  # noqa: E402
     DEFAULT_INGEST_POLICY,
     FactorZoo,
     IngestPolicy,
@@ -28,7 +28,7 @@ from seekalpha.factor import (  # noqa: E402
     ingest_factor,
     list_factor_entries,
 )
-from seekalpha.factor.report import format_factor_report_json, print_factor_report  # noqa: E402
+from alphaagent.factor.report import format_factor_report_json, print_factor_report  # noqa: E402
 
 
 def _slug_factor_id(name: str) -> str:
@@ -52,7 +52,7 @@ def _resolve_entries(
 ) -> list[tuple[str, str, str]]:
     if args.expr_dir is not None:
         expr_root = args.expr_dir if args.expr_dir.is_absolute() else ROOT / args.expr_dir
-        from seekalpha.factor.expr_store import list_expr_dir_entries
+        from alphaagent.factor.expr_store import list_expr_dir_entries
 
         entries = list_expr_dir_entries(expr_root)
         if args.factor_id:

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from seekalpha.factor.mining.env_settings import (
+from alphaagent.factor.mining.env_settings import (
     DEFAULT_MAX_PARALLEL_EVAL,
     ENV_MAX_PARALLEL_EVAL,
     parse_max_parallel_eval,
     resolve_max_parallel_eval,
 )
-from seekalpha.factor.mining.service import StockEvalService
+from alphaagent.factor.mining.service import StockEvalService
 
 
 def test_parse_max_parallel_eval_defaults():

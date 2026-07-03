@@ -18,9 +18,9 @@ Incremental: scripts/update_panel.py
   = update_market_cache (append hq) + update_panel_from_hq (tail-merge + re-derive)
 ```
 
-- `seekalpha/data/market_fetch.py` — all Tushare fetching + hq cache IO + `fetch_and_save_market` (full) / `update_market_cache` (incremental).
-- `seekalpha/data/index_members.py` — index constituents cached as monthly snapshots under `artifacts/index/`. Used only at fetch time to decide which stocks to pull; reused on same-range re-fetch (`--refresh-members` to force re-pull). The offline panel build does not depend on it.
-- `seekalpha/data/panel.py` — offline only: `build_panel` (from hq cache) and `update_panel_from_hq` (incremental). No Tushare import at call time.
+- `alphaagent/data/market_fetch.py` — all Tushare fetching + hq cache IO + `fetch_and_save_market` (full) / `update_market_cache` (incremental).
+- `alphaagent/data/index_members.py` — index constituents cached as monthly snapshots under `artifacts/index/`. Used only at fetch time to decide which stocks to pull; reused on same-range re-fetch (`--refresh-members` to force re-pull). The offline panel build does not depend on it.
+- `alphaagent/data/panel.py` — offline only: `build_panel` (from hq cache) and `update_panel_from_hq` (incremental). No Tushare import at call time.
 
 ## Full build (with token)
 
@@ -68,8 +68,8 @@ is not packaged; rebuild it via `scripts/ingest_factors.py`.
 
 ## 架构
 
-- `seekalpha/data/market_fetch.py`：所有 Tushare 抓取 + hq 缓存读写 + `fetch_and_save_market`（全量）/ `update_market_cache`（增量）。
-- `seekalpha/data/panel.py`：纯离线，`build_panel`（读 hq 缓存）与 `update_panel_from_hq`（增量）。
+- `alphaagent/data/market_fetch.py`：所有 Tushare 抓取 + hq 缓存读写 + `fetch_and_save_market`（全量）/ `update_market_cache`（增量）。
+- `alphaagent/data/panel.py`：纯离线，`build_panel`（读 hq 缓存）与 `update_panel_from_hq`（增量）。
 
 ## 全量构建（需 token）
 

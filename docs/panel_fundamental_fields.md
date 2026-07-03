@@ -2,14 +2,14 @@
 
 > 面向学习与理解：讲清 AlphaAgent 的 panel 里都有哪些基本面（财务）字段、它们从哪来、怎么进面板、以及在 DSL 表达式里怎么用。
 >
-> 相关代码：`seekalpha/data/panel.py`、`seekalpha/data/fundamental.py`、`seekalpha/data/fundamental_fetch.py`、`seekalpha/core/types.py`、`seekalpha/factor/mining/prompts.py`。
+> 相关代码：`alphaagent/data/panel.py`、`alphaagent/data/fundamental.py`、`alphaagent/data/fundamental_fetch.py`、`alphaagent/core/types.py`、`alphaagent/factor/mining/prompts.py`。
 > 操作命令见 `docs/operations_manual.md` §1.3–1.5。
 
 ---
 
 ## 1. Panel 是什么
 
-- **格式**：单个 Parquet 文件，默认路径 `artifacts/panel/panel_1d.parquet`（常量 `PANEL_PATH`，见 `seekalpha/core/paths.py`）。
+- **格式**：单个 Parquet 文件，默认路径 `artifacts/panel/panel_1d.parquet`（常量 `PANEL_PATH`，见 `alphaagent/core/paths.py`）。
 - **索引**：两层 `MultiIndex = (datetime, instrument)`
   - `datetime`：交易日（`DatetimeIndex`）
   - `instrument`：Tushare `ts_code`，如 `000001.SZ`
@@ -35,7 +35,7 @@ Panel 的列分三类：**行情/衍生/label 列**（始终存在）、**基本
 ### 2.1 财务指标（前缀 `funda_`）
 
 来源：Tushare `fina_indicator`（VIP 用 `fina_indicator_vip` 拉全市场）。
-映射定义：`seekalpha/data/fundamental_fetch.py` 中的 `FINA_INDICATOR_COLUMN_MAP`。
+映射定义：`alphaagent/data/fundamental_fetch.py` 中的 `FINA_INDICATOR_COLUMN_MAP`。
 
 | Panel 列名 | Tushare 原字段 | 含义 | 单位/量纲 |
 |---|---|---|---|
@@ -61,7 +61,7 @@ Panel 的列分三类：**行情/衍生/label 列**（始终存在）、**基本
 
 ### 2.2 披露日历特征（前缀 `funda_days_`）
 
-由 `seekalpha/data/fundamental.py` 计算（纯日历/PIT 推导，非 Tushare 原字段）。定义于 `DISCLOSURE_DISTANCE_COLUMNS`。
+由 `alphaagent/data/fundamental.py` 计算（纯日历/PIT 推导，非 Tushare 原字段）。定义于 `DISCLOSURE_DISTANCE_COLUMNS`。
 
 | Panel 列名 | 含义 | 单位 |
 |---|---|---|
@@ -75,7 +75,7 @@ Panel 的列分三类：**行情/衍生/label 列**（始终存在）、**基本
 ## 3. 三大表科目（`funda_fs_*`，可选并入）
 
 三大表（利润表 / 资产负债表 / 现金流量表）来自 Tushare `income` / `balancesheet` / `cashflow`（VIP 用 `*_vip` 按期拉全市场，需 5000 积分）。
-拉取时加 `--with-statements` 即并入同一份 `quarterly.parquet`，随 `fina_indicator` 一起走**同一套严格 PIT 展开**为日频（映射见 `seekalpha/data/fundamental_fetch.py` 的 `INCOME_COLUMN_MAP` / `BALANCESHEET_COLUMN_MAP` / `CASHFLOW_COLUMN_MAP`）。
+拉取时加 `--with-statements` 即并入同一份 `quarterly.parquet`，随 `fina_indicator` 一起走**同一套严格 PIT 展开**为日频（映射见 `alphaagent/data/fundamental_fetch.py` 的 `INCOME_COLUMN_MAP` / `BALANCESHEET_COLUMN_MAP` / `CASHFLOW_COLUMN_MAP`）。
 
 **口径约定（按 Tushare 原始值存储，不做单季差分）：**
 - **资产负债表**：**时点值**，列名无后缀（如 `funda_fs_total_assets`）。
@@ -174,7 +174,7 @@ Panel 的列分三类：**行情/衍生/label 列**（始终存在）、**基本
 | `funda_fs_cash_equiv_end` | `c_cash_equ_end_period` | 期末现金及等价物余额（时点） |
 
 > 注：`funda_fs_working_capital`（营运资本）、`funda_fs_ebit`（息税前利润）、`funda_fs_rd_exp`（研发费用）由 `fina_indicator` 提供（见 §2.1），不来自三大表接口，避免重复。
-> `seekalpha/data/fundamental.py` 里另有一套中文名 `FUNDAMENTAL_STATEMENT_COLUMN_MAP`（对齐 AlphaAgent 数据源）用于读取历史中文列名，与上述英文接入路径互不冲突。
+> `alphaagent/data/fundamental.py` 里另有一套中文名 `FUNDAMENTAL_STATEMENT_COLUMN_MAP`（对齐 AlphaAgent 数据源）用于读取历史中文列名，与上述英文接入路径互不冲突。
 
 **DSL 使用**：与其他 `funda_*` 列一致，用 `$funda_fs_total_assets` 引用。累计值可用同比/环比构造：`TS_PCTCHANGE($funda_fs_oper_revenue_ytd, 60)` ≈ 单季环比参考；跨年注意 YTD 在 Q1 归零的阶跃。
 
@@ -186,7 +186,7 @@ Panel 的列分三类：**行情/衍生/label 列**（始终存在）、**基本
 |---|---|---|---|
 | `industry_sw_l1` | 申万一级行业（SW2021）**离散整数码** 1..N | float32 | 严格 PIT；未归类为 NaN |
 
-- **数据源**：Tushare `index_classify(level='L1', src='SW2021')`（行业目录，31 个）+ `index_member`（个股成员，含 `in_date`/`out_date`）。映射与拉取见 `seekalpha/data/industry.py`。
+- **数据源**：Tushare `index_classify(level='L1', src='SW2021')`（行业目录，31 个）+ `index_member`（个股成员，含 `in_date`/`out_date`）。映射与拉取见 `alphaagent/data/industry.py`。
 - **整数编码**：按行业 `index_code` 排序分配 1..N，跨次运行稳定；`sw_l1_code_map()` 可取"码→行业名"。
 - **严格 PIT**：用 `merge_asof(backward)` 按 `in_date` 把每个交易日映射到当日有效行业；晚于 `out_date` 的样本置 NaN。**无前视**。
 - **缓存**：成员表落 `artifacts/industry/sw_l1_membership.parquet`；首次自动拉取，`--refresh-industry` 强制重拉。
@@ -264,7 +264,7 @@ turnover_z = CS_ZSCORE(DIVIDE(amt, $float_cap))
 
 ## 6. 附：行情 / 衍生 / label 列（非基本面，便于对照）
 
-始终存在，`build_panel` 自动生成（`OUTPUT_COLUMNS`，见 `seekalpha/core/types.py`）。
+始终存在，`build_panel` 自动生成（`OUTPUT_COLUMNS`，见 `alphaagent/core/types.py`）。
 
 | 字段 | 含义 | 说明 |
 |---|---|---|
@@ -311,6 +311,6 @@ uv run python scripts/eval_factor.py --expr-file your.dsl --report --label-col l
 
 字段说明目前分散在三处（**无独立数据字典文件**，本文档即为补充）：
 
-1. `seekalpha/factor/mining/prompts.py`（注入挖掘 LLM 的字段说明表，最贴近实际使用）
+1. `alphaagent/factor/mining/prompts.py`（注入挖掘 LLM 的字段说明表，最贴近实际使用）
 2. `docs/operations_manual.md` §1.4（拉数/enrich 命令与 PIT 语义）
-3. 代码内映射字典（机器可读的字段定义源头）：`FINA_INDICATOR_COLUMN_MAP`、`INCOME_COLUMN_MAP`、`BALANCESHEET_COLUMN_MAP`、`CASHFLOW_COLUMN_MAP`（均在 `seekalpha/data/fundamental_fetch.py`）；行业分类见 `seekalpha/data/industry.py`
+3. 代码内映射字典（机器可读的字段定义源头）：`FINA_INDICATOR_COLUMN_MAP`、`INCOME_COLUMN_MAP`、`BALANCESHEET_COLUMN_MAP`、`CASHFLOW_COLUMN_MAP`（均在 `alphaagent/data/fundamental_fetch.py`）；行业分类见 `alphaagent/data/industry.py`

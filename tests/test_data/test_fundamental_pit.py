@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from seekalpha.data.fundamental import (
+from alphaagent.data.fundamental import (
     FUNDAMENTAL_STATEMENT_COLUMN_MAP,
     _disclosure_effective_trade_positions,
     append_disclosure_distance_features,
@@ -14,7 +14,7 @@ from seekalpha.data.fundamental import (
     expand_quarterly_fundamentals_pit,
     quarter_period_start,
 )
-from seekalpha.data.panel import build_panel_from_hq
+from alphaagent.data.panel import build_panel_from_hq
 
 
 def _make_hq_panel(tmp_path) -> pd.DataFrame:

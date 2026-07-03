@@ -1,6 +1,6 @@
 """因子评估 metrics 测试。"""
 
-from seekalpha.factor import evaluate_factor
+from alphaagent.factor import evaluate_factor
 
 
 def test_evaluate_factor_on_mini_panel(mini_panel):

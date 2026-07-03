@@ -22,14 +22,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from seekalpha.core.paths import DISCLOSURE_CALENDAR_PATH, FUNDAMENTAL_QUARTERLY_PATH  # noqa: E402
-from seekalpha.data import tushare_client  # noqa: E402
-from seekalpha.data.fundamental_fetch import (  # noqa: E402
+from alphaagent.core.paths import DISCLOSURE_CALENDAR_PATH, FUNDAMENTAL_QUARTERLY_PATH  # noqa: E402
+from alphaagent.data import tushare_client  # noqa: E402
+from alphaagent.data.fundamental_fetch import (  # noqa: E402
     fetch_and_save_periods,
     quarter_periods_between,
 )
-from seekalpha.data.tushare_client import get_pro  # noqa: E402
-from seekalpha.data.universe import fetch_index_members, resolve_index_code  # noqa: E402
+from alphaagent.data.tushare_client import get_pro  # noqa: E402
+from alphaagent.data.universe import fetch_index_members, resolve_index_code  # noqa: E402
 
 
 def _resolve_ts_codes(universe: str, start: str, end: str) -> list[str]:

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from seekalpha.dsl.catalog import list_operator_names, operator_catalog_markdown
-from seekalpha.factor.mining.console import _metrics_parts
-from seekalpha.factor.mining.prompts import build_system_prompt
-from seekalpha.factor.mining.seed_factors import build_user_message_with_seed_factors
+from alphaagent.dsl.catalog import list_operator_names, operator_catalog_markdown
+from alphaagent.factor.mining.console import _metrics_parts
+from alphaagent.factor.mining.prompts import build_system_prompt
+from alphaagent.factor.mining.seed_factors import build_user_message_with_seed_factors
 
 
 def test_build_user_message_with_seed_factors(tmp_path: Path) -> None:
@@ -97,7 +97,7 @@ def test_system_prompt_includes_session_label() -> None:
 
 
 def test_mining_stream_observer_emits_agent_blocks() -> None:
-    from seekalpha.factor.mining.cli_stream import MiningStreamObserver
+    from alphaagent.factor.mining.cli_stream import MiningStreamObserver
 
     events: list[tuple[str, dict]] = []
 

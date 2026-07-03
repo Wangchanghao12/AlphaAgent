@@ -8,7 +8,7 @@ import requests
 
 def test_token_from_env(monkeypatch):
     monkeypatch.setenv("TUSHARE_TOKEN", "test_token_abc")
-    from seekalpha.data import tushare_client
+    from alphaagent.data import tushare_client
 
     # 重新加载模块内逻辑
     assert tushare_client._read_token() == "test_token_abc"
@@ -16,11 +16,11 @@ def test_token_from_env(monkeypatch):
 
 def test_token_missing_raises(monkeypatch):
     monkeypatch.delenv("TUSHARE_TOKEN", raising=False)
-    from seekalpha.data.tushare_client import _read_token, get_pro
+    from alphaagent.data.tushare_client import _read_token, get_pro
 
     # 清空 .env 影响：若 .env 存在仍可能有 token，仅测 get_pro 无 token 分支
     monkeypatch.setattr(
-        "seekalpha.data.tushare_client._read_token",
+        "alphaagent.data.tushare_client._read_token",
         lambda: "",
     )
     with pytest.raises(ValueError, match="TUSHARE_TOKEN"):
@@ -28,7 +28,7 @@ def test_token_missing_raises(monkeypatch):
 
 
 def test_is_retryable_network_error():
-    from seekalpha.data.tushare_client import _is_retryable
+    from alphaagent.data.tushare_client import _is_retryable
 
     assert _is_retryable(requests.exceptions.ConnectionError("timed out"))
     assert _is_retryable(TimeoutError("timed out"))
@@ -36,13 +36,13 @@ def test_is_retryable_network_error():
 
 
 def test_is_not_retryable_auth_error():
-    from seekalpha.data.tushare_client import _is_retryable
+    from alphaagent.data.tushare_client import _is_retryable
 
     assert not _is_retryable(Exception("token invalid"))
 
 
 def test_call_with_retry_recovers(monkeypatch):
-    from seekalpha.data import tushare_client
+    from alphaagent.data import tushare_client
 
     tushare_client.configure(max_retries=3, retry_base_delay=0.0, retry_max_delay=0.0)
     calls = {"n": 0}
@@ -58,7 +58,7 @@ def test_call_with_retry_recovers(monkeypatch):
 
 
 def test_call_with_retry_exhausts(monkeypatch):
-    from seekalpha.data import tushare_client
+    from alphaagent.data import tushare_client
 
     tushare_client.configure(max_retries=2, retry_base_delay=0.0, retry_max_delay=0.0)
 

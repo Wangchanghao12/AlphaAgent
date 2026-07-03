@@ -11,9 +11,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from seekalpha.core.paths import FACTORZOO_DIR, PANEL_PATH  # noqa: E402
-from seekalpha.data.panel import load_panel  # noqa: E402
-from seekalpha.factor.zoo import init_library  # noqa: E402
+from alphaagent.core.paths import FACTORZOO_DIR, PANEL_PATH  # noqa: E402
+from alphaagent.data.panel import load_panel  # noqa: E402
+from alphaagent.factor.zoo import init_library  # noqa: E402
 
 
 def main() -> None:

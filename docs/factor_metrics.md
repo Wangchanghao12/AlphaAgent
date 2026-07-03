@@ -1,6 +1,6 @@
 # 因子评估指标说明
 
-本文档说明 `scripts/eval_factor.py --report` 输出报告中各指标的含义。计算逻辑见 [`seekalpha/factor/metrics.py`](../seekalpha/factor/metrics.py)。
+本文档说明 `scripts/eval_factor.py --report` 输出报告中各指标的含义。计算逻辑见 [`alphaagent/factor/metrics.py`](../alphaagent/factor/metrics.py)。
 
 ## 如何生成报告
 
@@ -99,7 +99,7 @@ uv run python scripts/eval_factor.py --expr-file your.dsl --report --start-time 
 | **max_cs_corr** | 候选因子与库内因子的最大截面 \|Pearson\| 均值；默认 ≥0.8 拒绝入库 |
 | **train_start 之前 mask** | 入库值在 `train_start` 之前置 NaN，评估区间从 train_start 起算 |
 
-默认入库策略见 [`seekalpha/factor/types.py`](../seekalpha/factor/types.py) 中的 `IngestPolicy`。
+默认入库策略见 [`alphaagent/factor/types.py`](../alphaagent/factor/types.py) 中的 `IngestPolicy`。
 
 ---
 

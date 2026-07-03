@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from seekalpha.factor import ingest_factor, load_registry
+from alphaagent.factor import ingest_factor, load_registry
 
 ROOT = Path(__file__).resolve().parents[2]
 REGISTRY = ROOT / "configs" / "factors" / "registry.example.json"

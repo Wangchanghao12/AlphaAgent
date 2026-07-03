@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from seekalpha.dsl import eval_factor
+from alphaagent.dsl import eval_factor
 
 
 def test_ts_mean(mini_panel):

@@ -20,16 +20,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from seekalpha.core.paths import (  # noqa: E402
+from alphaagent.core.paths import (  # noqa: E402
     DISCLOSURE_CALENDAR_PATH,
     FUNDAMENTAL_QUARTERLY_PATH,
     INDUSTRY_SW_PATH,
     MARKET_HQ_PATH,
     PANEL_PATH,
 )
-from seekalpha.data import tushare_client  # noqa: E402
-from seekalpha.data.market_fetch import update_market_cache  # noqa: E402
-from seekalpha.data.panel import update_panel_from_hq  # noqa: E402
+from alphaagent.data import tushare_client  # noqa: E402
+from alphaagent.data.market_fetch import update_market_cache  # noqa: E402
+from alphaagent.data.panel import update_panel_from_hq  # noqa: E402
 
 
 def main() -> None:

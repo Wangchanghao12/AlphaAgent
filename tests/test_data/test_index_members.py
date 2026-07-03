@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from seekalpha.data import index_members as im
+from alphaagent.data import index_members as im
 
 
 class _FakePro:

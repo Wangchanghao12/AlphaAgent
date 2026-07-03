@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
+# 项目本地 Numba 缓存，避免全局缓存仍引用旧包名（seekalpha → alphaagent）导致 import 失败
+os.environ.setdefault(
+    "NUMBA_CACHE_DIR",
+    str(Path(__file__).resolve().parents[1] / ".numba_cache"),
+)
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -39,6 +48,6 @@ def mini_hq() -> pd.DataFrame:
 
 @pytest.fixture
 def mini_panel(mini_hq: pd.DataFrame) -> pd.DataFrame:
-    from seekalpha.data.panel import build_panel_from_hq
+    from alphaagent.data.panel import build_panel_from_hq
 
     return build_panel_from_hq(mini_hq, universe_mask=False)

@@ -33,12 +33,12 @@ try:
 except ImportError:
     load_dotenv = None  # type: ignore[assignment,misc]
 
-from seekalpha.core.paths import FACTORZOO_DIR, PANEL_PATH  # noqa: E402
-from seekalpha.factor.mining import MiningConfig  # noqa: E402
-from seekalpha.factor.mining.agentscope_run import run_factor_mining_agentscope  # noqa: E402
-from seekalpha.factor.mining.context import StockEvalContext  # noqa: E402
-from seekalpha.factor.mining.seed_factors import build_user_message_with_seed_factors  # noqa: E402
-from seekalpha.factor.types import DEFAULT_LABEL_COL  # noqa: E402
+from alphaagent.core.paths import FACTORZOO_DIR, PANEL_PATH  # noqa: E402
+from alphaagent.factor.mining import MiningConfig  # noqa: E402
+from alphaagent.factor.mining.agentscope_run import run_factor_mining_agentscope  # noqa: E402
+from alphaagent.factor.mining.context import StockEvalContext  # noqa: E402
+from alphaagent.factor.mining.seed_factors import build_user_message_with_seed_factors  # noqa: E402
+from alphaagent.factor.types import DEFAULT_LABEL_COL  # noqa: E402
 
 
 def _load_env() -> None:

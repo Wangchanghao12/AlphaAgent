@@ -1,6 +1,6 @@
 """报告格式化测试。"""
 
-from seekalpha.factor.report import format_factor_report_text
+from alphaagent.factor.report import format_factor_report_text
 
 
 def test_format_factor_report_text():

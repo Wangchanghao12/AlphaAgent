@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from seekalpha.factor import FactorZoo, init_library
+from alphaagent.factor import FactorZoo, init_library
 
 
 @pytest.fixture

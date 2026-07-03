@@ -23,10 +23,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from seekalpha.core.paths import FACTORZOO_DIR  # noqa: E402
-from seekalpha.data.panel import load_panel  # noqa: E402
-from seekalpha.factor.types import DEFAULT_INGEST_POLICY, IngestPolicy  # noqa: E402
-from seekalpha.factor.zoo.realign import (  # noqa: E402
+from alphaagent.core.paths import FACTORZOO_DIR  # noqa: E402
+from alphaagent.data.panel import load_panel  # noqa: E402
+from alphaagent.factor.types import DEFAULT_INGEST_POLICY, IngestPolicy  # noqa: E402
+from alphaagent.factor.zoo.realign import (  # noqa: E402
     DEFAULT_OVERLAP_VERIFY_DAYS,
     DEFAULT_WARMUP_DAYS,
     DEFAULT_WARMUP_RETRY_DAYS,
@@ -111,7 +111,7 @@ def main() -> None:
     parser.add_argument("--json", action="store_true", help="输出完整 JSON")
     args = parser.parse_args()
 
-    from seekalpha.factor import FactorZoo
+    from alphaagent.factor import FactorZoo
 
     zoo = FactorZoo.open(args.lib, verify_hash=False)
     panel_path = args.panel or Path(zoo.manifest.panel_path)

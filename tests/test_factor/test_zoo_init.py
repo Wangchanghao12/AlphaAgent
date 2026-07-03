@@ -1,7 +1,7 @@
 """factorzoo 初始化测试。"""
 
-from seekalpha.factor import init_library
-from seekalpha.factor.zoo import FactorZoo
+from alphaagent.factor import init_library
+from alphaagent.factor.zoo import FactorZoo
 
 
 def test_init_library(mini_panel, tmp_path):

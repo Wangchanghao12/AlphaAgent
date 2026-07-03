@@ -1,8 +1,8 @@
 """core 模块测试。"""
 
-from seekalpha.core.config import load_yaml
-from seekalpha.core.hash import panel_index_hash
-from seekalpha.core.paths import ROOT
+from alphaagent.core.config import load_yaml
+from alphaagent.core.hash import panel_index_hash
+from alphaagent.core.paths import ROOT
 
 
 def test_root_exists():

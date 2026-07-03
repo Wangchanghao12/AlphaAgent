@@ -122,7 +122,7 @@ uv run python scripts/update_panel.py --dates 2026-06-27 2026-06-30 --universe z
 已有 panel 补算新 label 列（schema 升级后一次性执行）：
 
 ```powershell
-uv run python -c "from seekalpha.core.paths import PANEL_PATH; from seekalpha.data.panel import load_panel, save_panel, backfill_panel_derived_columns; p = backfill_panel_derived_columns(load_panel(PANEL_PATH)); save_panel(p, PANEL_PATH); print('ok', [c for c in p.columns if c.startswith('label_')])"
+uv run python -c "from alphaagent.core.paths import PANEL_PATH; from alphaagent.data.panel import load_panel, save_panel, backfill_panel_derived_columns; p = backfill_panel_derived_columns(load_panel(PANEL_PATH)); save_panel(p, PANEL_PATH); print('ok', [c for c in p.columns if c.startswith('label_')])"
 ```
 
 评估时按因子类型指定 `--label-col`：
@@ -178,7 +178,7 @@ uv run python scripts/update_panel.py --universe zz1000 --with-fundamentals
 全量 rebuild 后通常不需要；发现 adjfactor 断层时可用 `market_fetch.repair_panel_adjfactor`（联网单股重拉 adj_factor 并重算）：
 
 ```powershell
-uv run python -c "from seekalpha.core.paths import PANEL_PATH; from seekalpha.data.panel import load_panel, save_panel; from seekalpha.data.market_fetch import repair_panel_adjfactor; p, stats = repair_panel_adjfactor(load_panel(PANEL_PATH)); print(stats); save_panel(p, PANEL_PATH)"
+uv run python -c "from alphaagent.core.paths import PANEL_PATH; from alphaagent.data.panel import load_panel, save_panel; from alphaagent.data.market_fetch import repair_panel_adjfactor; p, stats = repair_panel_adjfactor(load_panel(PANEL_PATH)); print(stats); save_panel(p, PANEL_PATH)"
 ```
 
 ---
@@ -465,13 +465,13 @@ uv sync --extra mining
 ### 6.2 打印系统提示词（检查算子清单 / 门槛）
 
 ```powershell
-uv run python -c "from seekalpha.factor.mining.prompts import build_system_prompt; print(build_system_prompt())" > logs/mining_system_prompt.md
+uv run python -c "from alphaagent.factor.mining.prompts import build_system_prompt; print(build_system_prompt())" > logs/mining_system_prompt.md
 ```
 
 不含算子清单的精简版：
 
 ```powershell
-uv run python -c "from seekalpha.factor.mining.prompts import build_system_prompt; print(build_system_prompt(include_operator_catalog=False))"
+uv run python -c "from alphaagent.factor.mining.prompts import build_system_prompt; print(build_system_prompt(include_operator_catalog=False))"
 ```
 
 ### 6.3 AgentScope 版（推荐，终端流式输出）

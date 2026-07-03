@@ -19,13 +19,13 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from seekalpha.core.paths import PANEL_PATH  # noqa: E402
-from seekalpha.data.panel import load_panel, slice_panel  # noqa: E402
-from seekalpha.dsl import eval_factor  # noqa: E402
-from seekalpha.dsl.eval import collect_aux_intervals_from_expr  # noqa: E402
-from seekalpha.factor import evaluate_factor  # noqa: E402
-from seekalpha.factor.report import format_factor_report_json, print_factor_report  # noqa: E402
-from seekalpha.factor.types import DEFAULT_LABEL_COL  # noqa: E402
+from alphaagent.core.paths import PANEL_PATH  # noqa: E402
+from alphaagent.data.panel import load_panel, slice_panel  # noqa: E402
+from alphaagent.dsl import eval_factor  # noqa: E402
+from alphaagent.dsl.eval import collect_aux_intervals_from_expr  # noqa: E402
+from alphaagent.factor import evaluate_factor  # noqa: E402
+from alphaagent.factor.report import format_factor_report_json, print_factor_report  # noqa: E402
+from alphaagent.factor.types import DEFAULT_LABEL_COL  # noqa: E402
 
 _SHELL_STRIPPED_DOLLAR_RE = re.compile(r"(?<![A-Za-z0-9_])@[A-Za-z0-9_]+\b")
 

@@ -5,15 +5,15 @@
 import numpy as np
 import pandas as pd
 
-from seekalpha.core.types import OUTPUT_COLUMNS
-from seekalpha.data.market_fetch import (
+from alphaagent.core.types import OUTPUT_COLUMNS
+from alphaagent.data.market_fetch import (
     _expand_update_dates,
     _group_contiguous_trade_dates,
     _merge_raw_daily,
     _panel_missing_trade_dates,
     _select_daily_basic,
 )
-from seekalpha.data.panel import (
+from alphaagent.data.panel import (
     _rederive_since,
     build_panel_from_hq,
     count_suspect_adjfactor_rows,
@@ -24,7 +24,7 @@ from seekalpha.data.panel import (
     slice_panel,
 )
 
-from seekalpha.data.universe import apply_is_st, mark_not_st
+from alphaagent.data.universe import apply_is_st, mark_not_st
 
 
 
@@ -433,7 +433,7 @@ def test_label_nd_close_to_close_formula():
     idx = pd.MultiIndex.from_product([dates, ["X.SH"]], names=["datetime", "instrument"])
     panel = pd.DataFrame({"adj_close": closes}, index=idx)
 
-    from seekalpha.data.panel import _calc_label_nd_close_to_close
+    from alphaagent.data.panel import _calc_label_nd_close_to_close
 
     label_1d = _calc_label_nd_close_to_close(panel["adj_close"], 1)
     # T=day0: (close[T+2]-close[T+1])/(close[T+1]) = (12-11)/11
@@ -460,8 +460,8 @@ def test_save_load_panel_roundtrip(mini_panel, tmp_path):
 
 def test_build_panel_offline_from_cache(mini_hq, tmp_path):
     """离线：save hq 缓存 → build_panel(market_path=...) 复现量价 panel。"""
-    from seekalpha.data.market_fetch import save_market_hq
-    from seekalpha.data.panel import build_panel
+    from alphaagent.data.market_fetch import save_market_hq
+    from alphaagent.data.panel import build_panel
 
     hq_path = tmp_path / "daily_hq.parquet"
     save_market_hq(mini_hq, hq_path)
@@ -480,7 +480,7 @@ def test_build_panel_offline_from_cache(mini_hq, tmp_path):
 
 def test_update_panel_from_hq_appends_and_rederives(mini_hq, tmp_path):
     """离线增量：老 panel + 新一日 hq → 尾部 merge 且新日 ret 被重算为有限值。"""
-    from seekalpha.data.panel import build_panel_from_hq, save_panel, update_panel_from_hq
+    from alphaagent.data.panel import build_panel_from_hq, save_panel, update_panel_from_hq
 
     # 老 panel：前 4 个交易日
     first_days = mini_hq.iloc[:12]

@@ -10,7 +10,7 @@ import pandas as pd
 
 
 
-from seekalpha.data.universe import (
+from alphaagent.data.universe import (
 
     _members_from_index_member,
 

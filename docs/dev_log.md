@@ -1,6 +1,6 @@
 # AlphaAgent 开发记录
 
-> 截至 2026-07-02。统一 monorepo `seekalpha`：Tushare 数据源 + AlphaAgent DSL + FactorZoo，目标覆盖因子研究 → 模型 → 回测 → 实盘。
+> 截至 2026-07-02。统一 monorepo `alphaagent`：Tushare 数据源 + AlphaAgent DSL + FactorZoo，目标覆盖因子研究 → 模型 → 回测 → 实盘。
 
 ---
 
@@ -8,7 +8,7 @@
 
 ### 基础框架（Phase 1）
 
-- `seekalpha` 包骨架：`core` / `data` / `dsl`
+- `alphaagent` 包骨架：`core` / `data` / `dsl`
 - DSL 从 AlphaAgent-Stock 迁移，表达式求值可用
 - Panel 全量构建 + 增量更新（parquet，`--update` 自动补 gap、回填 ret/label）
 - Tushare 客户端（`.env` token、重试/超时）
@@ -50,9 +50,9 @@
 
 ### Phase 3 — 模型 + 回测
 
-- [ ] `seekalpha/model/`：dataset、walk-forward 训练（Linear / LightGBM）
-- [ ] `seekalpha/portfolio/`：alpha → 目标持仓
-- [ ] `seekalpha/backtest/`：朴素逐日回测引擎（与 live 共用 portfolio 逻辑）
+- [ ] `alphaagent/model/`：dataset、walk-forward 训练（Linear / LightGBM）
+- [ ] `alphaagent/portfolio/`：alpha → 目标持仓
+- [ ] `alphaagent/backtest/`：朴素逐日回测引擎（与 live 共用 portfolio 逻辑）
 - [ ] `scripts/train_model.py`、`scripts/backtest.py`
 - [ ] YAML 驱动策略配置（`configs/strategies/`）
 - [ ] StrategyBundle 版本化（`artifacts/bundles/`）
@@ -60,9 +60,9 @@
 
 ### Phase 4 — 实盘
 
-- [ ] `seekalpha/live/`：inference、reconciler（目标 vs 持仓 → 订单）
-- [ ] `seekalpha/exec/qmt/`：精简 QMT adapter
-- [ ] `seekalpha/risk/`、`seekalpha/monitor/`
+- [ ] `alphaagent/live/`：inference、reconciler（目标 vs 持仓 → 订单）
+- [ ] `alphaagent/exec/qmt/`：精简 QMT adapter
+- [ ] `alphaagent/risk/`、`alphaagent/monitor/`
 - [ ] `scripts/run_live.py`
 - [ ] `test_live` / `test_exec` / `test_integration` 全链路
 

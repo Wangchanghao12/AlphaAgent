@@ -22,9 +22,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from seekalpha.core.paths import MARKET_HQ_PATH  # noqa: E402
-from seekalpha.data import tushare_client  # noqa: E402
-from seekalpha.data.market_fetch import fetch_and_save_market, update_market_cache  # noqa: E402
+from alphaagent.core.paths import MARKET_HQ_PATH  # noqa: E402
+from alphaagent.data import tushare_client  # noqa: E402
+from alphaagent.data.market_fetch import fetch_and_save_market, update_market_cache  # noqa: E402
 
 
 def main() -> None:

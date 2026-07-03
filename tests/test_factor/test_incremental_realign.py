@@ -7,10 +7,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from seekalpha.data.panel import slice_panel
-from seekalpha.factor import FactorZoo, ingest_factor, init_library
-from seekalpha.factor.zoo.index import verify_index_prefix_stable
-from seekalpha.factor.zoo.realign import (
+from alphaagent.data.panel import slice_panel
+from alphaagent.factor import FactorZoo, ingest_factor, init_library
+from alphaagent.factor.zoo.index import verify_index_prefix_stable
+from alphaagent.factor.zoo.realign import (
     incremental_realign_factorlib_to_panel,
     list_append_boundary_old_n,
     overlap_row_ids,
@@ -34,7 +34,7 @@ def test_verify_index_prefix_stable_append(mini_panel, tmp_path):
     old = slice_panel(mini_panel, start="2024-01-02", end="2024-01-04")
     lib_root = _init_lib(old, tmp_path)
     zoo = FactorZoo.open(lib_root)
-    from seekalpha.factor.zoo.realign import _candidate_rows_from_panel
+    from alphaagent.factor.zoo.realign import _candidate_rows_from_panel
 
     new_rows = _candidate_rows_from_panel(mini_panel)
     assert verify_index_prefix_stable(zoo.index.rows, new_rows, len(old))
@@ -122,8 +122,8 @@ def test_incremental_fallback_on_prefix_mismatch(mini_panel, tmp_path):
 
 
 def test_list_append_boundary_old_n(mini_panel):
-    from seekalpha.factor.zoo.index import _panel_to_index_frame, build_row_index
-    from seekalpha.factor.zoo.realign import list_append_boundary_old_n
+    from alphaagent.factor.zoo.index import _panel_to_index_frame, build_row_index
+    from alphaagent.factor.zoo.realign import list_append_boundary_old_n
 
     rows = build_row_index(_panel_to_index_frame(mini_panel))
     points = list_append_boundary_old_n(rows, append_trade_days=[1, 2])
@@ -143,7 +143,7 @@ def test_probe_incremental_at_old_n(mini_panel, tmp_path):
         panel=mini_panel.sort_index(),
     )
     pt = list_append_boundary_old_n(zoo.index.rows, append_trade_days=[2])[0]
-    from seekalpha.factor.zoo.realign import probe_incremental_realign_at_old_n
+    from alphaagent.factor.zoo.realign import probe_incremental_realign_at_old_n
 
     result = probe_incremental_realign_at_old_n(
         zoo,
@@ -157,7 +157,7 @@ def test_probe_incremental_at_old_n(mini_panel, tmp_path):
 def test_overlap_row_ids_last_k_days(mini_panel):
     import pandas as pd
 
-    from seekalpha.factor.zoo.index import _panel_to_index_frame, build_row_index
+    from alphaagent.factor.zoo.index import _panel_to_index_frame, build_row_index
 
     rows = build_row_index(_panel_to_index_frame(mini_panel))
     old_n = len(slice_panel(mini_panel, start="2024-01-02", end="2024-01-04"))

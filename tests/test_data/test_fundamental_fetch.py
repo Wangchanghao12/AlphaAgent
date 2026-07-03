@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from seekalpha.data.fundamental_fetch import (
+from alphaagent.data.fundamental_fetch import (
     disclosure_events_to_wide,
     merge_disclosure_wide,
     merge_quarterly,

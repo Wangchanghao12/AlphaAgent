@@ -101,7 +101,7 @@ uv run pytest tests/ -q
 ## Layout
 
 ```
-seekalpha/     # core package (data, factor, mining, …)
+alphaagent/     # core package (data, factor, mining, …)
 scripts/       # CLI entry points
 artifacts/     # local data & factorzoo (only expressions/*.dsl tracked in Git)
 docs/          # manuals
