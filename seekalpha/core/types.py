@@ -8,6 +8,25 @@ from typing import Literal
 
 import pandas as pd
 
+# Tushare daily_basic 每日指标（除 close/total_mv/circ_mv 外，直接入库的原生字段）
+# 单位：turnover_rate/turnover_rate_f/dv_ratio/dv_ttm 为 %，volume_ratio 为倍数，
+# pe/pe_ttm/pb/ps/ps_ttm 为比值，total_share/float_share/free_share 为万股。
+DAILY_BASIC_COLUMNS = [
+    "turnover_rate",
+    "turnover_rate_f",
+    "volume_ratio",
+    "pe",
+    "pe_ttm",
+    "pb",
+    "ps",
+    "ps_ttm",
+    "dv_ratio",
+    "dv_ttm",
+    "total_share",
+    "float_share",
+    "free_share",
+]
+
 # Panel 输出列（与 AlphaAgent-Stock 保持一致）
 OUTPUT_COLUMNS = [
     "open",
@@ -23,6 +42,7 @@ OUTPUT_COLUMNS = [
     "amount",
     "float_cap",
     "tot_cap",
+    *DAILY_BASIC_COLUMNS,
     "is_trade",
     "not_st",
     "ret",

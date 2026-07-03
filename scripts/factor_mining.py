@@ -44,11 +44,22 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--val-start", default="2022-01-01")
     p.add_argument("--val-end", default="2024-12-31")
     p.add_argument("--label-col", default=DEFAULT_LABEL_COL)
+    p.add_argument(
+        "--no-fundamentals",
+        action="store_true",
+        help="不载入基本面列(funda_*)，省内存；prompt 也会隐藏基本面字段",
+    )
     p.add_argument("--temperature", type=float, default=None)
     p.add_argument("--max-tokens", type=int, default=8192)
     p.add_argument("--max-turns", type=int, default=10)
     p.add_argument("--max-tool-calls-per-round", type=int, default=8)
     p.add_argument("--max-tool-workers", type=int, default=4)
+    p.add_argument(
+        "--max-parallel-eval",
+        type=int,
+        default=None,
+        help="同时进行的 train/val 评估上限；不传则读环境变量 MAX_PARALLEL_EVAL（默认 1）。建议与 --max-tool-workers 匹配",
+    )
     p.add_argument("--min-tool-call-rounds", type=int, default=3)
     p.add_argument("--log-dir", default="logs/factor_mining")
     p.add_argument(
@@ -122,6 +133,7 @@ def main() -> int:
             val_start=args.val_start,
             val_end=args.val_end,
             label_col=args.label_col,
+            include_fundamentals=not args.no_fundamentals,
         ),
         model=model,
         temperature=args.temperature,
@@ -129,6 +141,7 @@ def main() -> int:
         max_turns=args.max_turns,
         max_tool_calls_per_round=args.max_tool_calls_per_round,
         max_tool_workers=args.max_tool_workers,
+        max_parallel_eval=args.max_parallel_eval,
         min_tool_call_rounds_before_allow_stop=args.min_tool_call_rounds,
         factorlib_path=_resolve(str(args.factorlib)) if args.factorlib else None,
         enable_submit=not args.no_submit,

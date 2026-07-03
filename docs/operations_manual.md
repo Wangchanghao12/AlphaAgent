@@ -1,4 +1,4 @@
-# AlphaSeeker 操作手册
+# AlphaAgent 操作手册
 
 > 按**推荐执行顺序**整理：环境 → 拉数据 / 建 Panel（含 label）→ 因子调试 → 建因子库 → 入库 / 查重 → Panel 更新与 realign → LLM 挖因子。  
 > 所有命令均在**仓库根目录**执行，前缀统一为 `uv run python scripts/...`。
@@ -10,7 +10,7 @@
 ### 0.1 安装依赖
 
 ```powershell
-cd D:\AlphaSeeker
+cd D:\AlphaAgent2026
 uv sync
 ```
 
@@ -33,6 +33,7 @@ TUSHARE_TOKEN=your_tushare_token
 OPENAI_API_KEY=sk-...
 OPENAI_API_BASE=https://...   # 可选，兼容 OpenAI 协议的中转
 MODEL=gpt-5.5                  # 或 deepseek-chat 等
+MAX_PARALLEL_EVAL=4           # 可选，train/val 并行评估上限（默认 1；也可用 --max-parallel-eval 覆盖）
 ```
 
 ### 0.3 关键路径（默认值）
@@ -80,8 +81,13 @@ Panel 构建时会**自动**写入行情、复权 OHLC、`ret` 与两个前瞻 l
 
 ### 1.1 全量构建（ZZ1000 成分并集，推荐）
 
+两段式：**先拉行情落盘 hq 缓存（联网），再离线建 panel（不联网）**。
+
 ```powershell
-uv run python scripts/build_panel.py --start 2015-01-01 --end 2026-06-30 --universe zz1000
+# 1. 拉行情 → artifacts/market/daily_hq.parquet
+uv run python scripts/fetch_market.py --start 2015-01-01 --end 2026-06-30 --universe zz1000
+# 2. 从 hq 缓存离线构建 panel
+uv run python scripts/build_panel.py
 ```
 
 输出默认：`artifacts/panel/panel_1d.parquet`。
@@ -89,28 +95,28 @@ uv run python scripts/build_panel.py --start 2015-01-01 --end 2026-06-30 --unive
 常用参数：
 
 ```powershell
-# 指定输出路径
-uv run python scripts/build_panel.py --start 2024-01-01 --end 2024-12-31 --out artifacts/panel/panel_1d.parquet
-
 # 降低 Tushare 限流风险（大批量建议 batch-size 20~40）
-uv run python scripts/build_panel.py --start 2024-01-01 --end 2024-12-31 --batch-size 20 --sleep 0.35
+uv run python scripts/fetch_market.py --start 2024-01-01 --end 2024-12-31 --batch-size 20 --sleep 0.35
 
 # 全市场按日拉取（慢）
-uv run python scripts/build_panel.py --start 2024-01-01 --end 2024-01-31 --universe none
+uv run python scripts/fetch_market.py --start 2024-01-01 --end 2024-01-31 --universe none
+
+# 从 hq 缓存切片构建、指定输出
+uv run python scripts/build_panel.py --start 2024-01-01 --end 2024-12-31 --out artifacts/panel/panel_1d.parquet
 ```
 
 ### 1.2 增量更新
 
-从 Panel 末日起补至最新交易日，并回填 `ret` / label：
+一条命令：增量拉取新交易日 → 追加 hq 缓存 → panel 尾部 merge + 回填 `ret` / label：
 
 ```powershell
-uv run python scripts/build_panel.py --update --universe zz1000
+uv run python scripts/update_panel.py --universe zz1000 --with-fundamentals --with-industry
 ```
 
 指定若干交易日：
 
 ```powershell
-uv run python scripts/build_panel.py --update --dates 2026-06-27 2026-06-30 --universe zz1000
+uv run python scripts/update_panel.py --dates 2026-06-27 2026-06-30 --universe zz1000
 ```
 
 已有 panel 补算新 label 列（schema 升级后一次性执行）：
@@ -141,14 +147,14 @@ uv run python scripts/fetch_fundamentals.py --start 2015-01-01 --end 2026-12-31
 # 积分不足时逐股慢拉（须指定 universe）
 uv run python scripts/fetch_fundamentals.py --start 2015-01-01 --end 2026-12-31 --universe zz1000 --no-vip
 
-# 2a. 新建 panel 时一并 enrich
-uv run python scripts/build_panel.py --start 2015-01-01 --end 2026-06-30 --with-fundamentals
+# 2a. 从 hq 缓存离线建 panel 时一并 enrich
+uv run python scripts/build_panel.py --with-fundamentals
 
-# 2b. 已有 panel，仅补基本面列（不重新拉行情）
+# 2b. 已有 panel，仅补基本面列（不重建量价）
 uv run python scripts/build_panel.py --enrich-only
 
 # 2c. 增量更新行情后顺带 refresh 基本面
-uv run python scripts/build_panel.py --update --universe zz1000 --with-fundamentals
+uv run python scripts/update_panel.py --universe zz1000 --with-fundamentals
 ```
 
 | 参数 | 说明 |
@@ -163,16 +169,16 @@ uv run python scripts/build_panel.py --update --universe zz1000 --with-fundament
 
 **label 选用**：基本面因子 `--label-col label_10d_close_to_close`；价量因子 `--label-col label_1d_close_to_close`。
 
+**三大表（可选）**：`fetch_fundamentals.py --with-statements` 额外拉 income/balancesheet/cashflow，并入 `funda_fs_*` 列（利润表/现金流为年初至今累计，列名带 `_ytd`；资产负债表为时点值）。
+
+**行业分类（可选）**：`build_panel.py --with-industry` 并入申万一级行业码 `industry_sw_l1`（严格 PIT，缓存于 `artifacts/industry/`）。DSL 里 `CS_NEUTRALIZE($factor, $industry_sw_l1)` 做行业中性。详见 `docs/panel_fundamental_fields.md` §3.4。
+
 ### 1.5 Panel 复权修补（可选）
 
-全量 rebuild 后通常不需要；发现 adjfactor 断层时可：
+全量 rebuild 后通常不需要；发现 adjfactor 断层时可用 `market_fetch.repair_panel_adjfactor`（联网单股重拉 adj_factor 并重算）：
 
 ```powershell
-# 先看会修哪些
-uv run python scripts/repair_panel_adjfactor.py --dry-run
-
-# 执行修补
-uv run python scripts/repair_panel_adjfactor.py
+uv run python -c "from seekalpha.core.paths import PANEL_PATH; from seekalpha.data.panel import load_panel, save_panel; from seekalpha.data.market_fetch import repair_panel_adjfactor; p, stats = repair_panel_adjfactor(load_panel(PANEL_PATH)); print(stats); save_panel(p, PANEL_PATH)"
 ```
 
 ---
@@ -390,6 +396,33 @@ uv run python scripts/factorlib_info.py
 
 **推荐顺序**：`git pull` → `ingest --expr-dir --overwrite` → 再跑 `factor_mining_agentscope.py`。
 
+### 4.6 更新手改过的 `.dsl` 因子
+
+手动编辑并用 `eval_factor.py`（[§2](#2-因子表达式调试不入库)）验证过某个 `.dsl` 后，用 `ingest_factors.py --overwrite` 把新表达式写回 factorzoo（重算 memmap 值 + 指标 + 相似度）。
+
+```powershell
+# 1. 先 dry-run 看指标，确认能跑通
+uv run python scripts/ingest_factors.py `
+  --expr-file artifacts/factorzoo/stock_1d/expressions/<factor_id>.dsl `
+  --factor-id <factor_id> `
+  --dry-run
+
+# 2. 确认无误后正式覆盖
+uv run python scripts/ingest_factors.py `
+  --expr-file artifacts/factorzoo/stock_1d/expressions/<factor_id>.dsl `
+  --factor-id <factor_id> `
+  --overwrite
+```
+
+要点：
+
+- **必须加 `--overwrite`**。否则命中已存在因子会直接跳过（`skipped_reason=already_exists`），指标算完但不写库。
+- **`--factor-id` 要与 catalog 中已有 ID 完全一致**。不传时会用文件名 stem 经 slug（转小写/替换特殊字符）推导，万一对不上会当成**新因子插入**而非覆盖；稳妥起见显式传。
+- **覆盖不走查重闸门**。overwrite 分支调用 `zoo.overwrite_factor`，重新物化 + 重算指标/相似度并覆盖，**不会**因 `max_cs_corr` 过高被拦；只要 DSL 能求值即可更新。
+- **指标口径保持一致**。若在意前后可比，`--label-col` / `--train-start` / `--eval-end` 用与初次入库相同的值。
+- `ingest_factors.py` **只读** `.dsl`、不回写，手改文本会原样保留；catalog 里存的是物化值，覆盖时按当前 panel 重新求值。
+- 更新后如需同步到 Git，走 [§4.5 提交侧](#45-从-git-的-dsl-全量重建因子库memmap--查重矩阵)：`sync_factor_exprs.py`（可选，DSL 已是最新）→ `git add/commit/push`。
+
 ---
 
 ## 5. Panel 更新后 realign 因子库
@@ -397,8 +430,8 @@ uv run python scripts/factorlib_info.py
 Panel 增量更新后，已有因子 memmap 需与新的 canonical index 对齐：
 
 ```powershell
-# 1. 更新 Panel
-uv run python scripts/build_panel.py --update --universe zz1000
+# 1. 更新 Panel（增量拉行情 + panel 增量重建）
+uv run python scripts/update_panel.py --universe zz1000
 
 # 2. 增量 realign（默认 T+N 窗口，warmup=240 交易日）
 uv run python scripts/realign_factorlib.py
@@ -453,6 +486,14 @@ uv run python scripts/factor_mining_agentscope.py --panel artifacts/panel/panel_
 uv run python scripts/factor_mining_agentscope.py --panel artifacts/panel/panel_1d.parquet --no-submit
 ```
 
+只挖价量因子、不载入基本面列（省内存；prompt 也会隐藏 `$funda_*` 字段）：
+
+```powershell
+uv run python scripts/factor_mining_agentscope.py --panel artifacts/panel/panel_1d.parquet --no-fundamentals
+```
+
+> 接了三大表后 panel 有 70+ 个 `funda_fs_*` 列，全量驻内存较大；挖价量因子时加 `--no-fundamentals`，会话会丢弃所有 `funda_*` 列并从系统提示词中移除基本面字段说明。`factor_mining.py`（OpenAI 直连版）同样支持该开关。
+
 ### 6.4 OpenAI 直连版
 
 ```powershell
@@ -484,6 +525,7 @@ uv run python scripts/factor_mining_agentscope.py `
 | `--factorlib PATH` | 因子库根目录（默认 `artifacts/factorzoo/stock_1d`） |
 | `--ingest-overwrite` | submit 时覆盖已存在 factor_id |
 | `--no-operator-catalog` | system prompt 不注入算子清单 |
+| `--max-parallel-eval N` | 同时进行的 train/val 评估上限（不传则读环境变量 `MAX_PARALLEL_EVAL`，默认 1）。评估以 numpy/pandas 为主会释放 GIL，放开后可真正并行；建议与 `--max-tool-workers` 匹配 |
 
 ### 6.6 挖掘会话里的工具链
 
@@ -516,8 +558,9 @@ submit_factor
 uv sync
 uv sync --extra mining   # 若要挖因子
 
-# 1. 建 Panel（含 label）
-uv run python scripts/build_panel.py --start 2015-01-01 --end 2026-06-30 --universe zz1000 --batch-size 20
+# 1. 拉行情 → hq 缓存，再离线建 Panel（含 label）
+uv run python scripts/fetch_market.py --start 2015-01-01 --end 2026-06-30 --universe zz1000 --batch-size 20
+uv run python scripts/build_panel.py
 
 # 2. 调试一个 DSL
 uv run python scripts/eval_factor.py --expr-file examples/factors/ma20_dev.dsl --report
@@ -536,7 +579,7 @@ uv run python scripts/factor_mining_agentscope.py --panel artifacts/panel/panel_
 uv run python scripts/sync_factor_exprs.py
 
 # 7. 日常：Panel 增量 → realign
-uv run python scripts/build_panel.py --update --universe zz1000
+uv run python scripts/update_panel.py --universe zz1000
 uv run python scripts/realign_factorlib.py
 ```
 
@@ -575,9 +618,11 @@ uv run pytest tests/test_factor/ tests/test_dsl/ -q
 
 | 脚本 | 用途 |
 |------|------|
-| `build_panel.py` | 拉 Tushare 数据、建/增量 Panel（含 label、`--with-fundamentals`） |
+| `fetch_market.py` | 拉 Tushare 日频行情 → `artifacts/market/daily_hq.parquet`（hq 缓存） |
+| `build_panel.py` | 从 hq 缓存**离线**建 Panel（含 label、`--with-fundamentals`、`--enrich-only`） |
+| `update_panel.py` | 增量：拉新交易日 → 追加 hq 缓存 → panel 尾部重建 |
 | `fetch_fundamentals.py` | 拉 Tushare 季频 `fina_indicator` → `artifacts/fundamental/` |
-| `repair_panel_adjfactor.py` | 修补异常 adjfactor |
+| `pack_data_release.py` | 打包 market/fundamental/industry 缓存为可分发数据包 |
 | `eval_factor.py` | DSL 调试求值 / IC 报告 |
 | `init_factorlib.py` | 初始化 factorzoo |
 | `ingest_factors.py` | 手动入库 / **`--expr-dir` 从 .dsl 批量重建 memmap** |

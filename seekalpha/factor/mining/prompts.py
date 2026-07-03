@@ -75,49 +75,13 @@ FACTOR_MINING_INTERFACE_PROMPT = """你是一名量化研究自主智能体，�
 | `$adj_vwap` | 后复权 VWAP（`$vwap × $adjfactor`，与 `$adj_close` 同复权口径） |
 | `$ret` | 日 adj_close pct_change（按 instrument） |
 | `$is_trade` / `$not_st` | 可交易 / 非 ST 标记 |
+| `$industry_sw_l1` | 申万一级行业**离散码**（严格 PIT，`--with-industry` 时才有）；仅用于分组，不做数值运算 |
+
+> **行业中性化**：行业码是离散组号，直接 `CS_NEUTRALIZE(factor, $industry_sw_l1)` 即为行业内去均值；**勿**对它套 `CS_BUCKET`。
 
 ---
 
-### 基本面与披露日历（`build_panel --with-fundamentals` 并入）
-
-季频 `fina_indicator` 经**严格 PIT** 展开为日频：财报公告日 D **不可用**，**D 的下一交易日**起该期字段才可引用；两期之间 **ffill** 保持最近已披露值。披露前为 NaN 属正常，勿当缺失错误。
-
-**财务指标**（`fina_indicator` → 日频，前缀 `funda_`）：
-
-| 字段 | 说明 |
-|------|------|
-| `$funda_roe` / `$funda_roa` | 净资产收益率 / 总资产报酬率 |
-| `$funda_debt_to_assets` | 资产负债率 |
-| `$funda_eps` / `$funda_bps` | 每股收益 / 每股净资产 |
-| `$funda_grossprofit_margin` / `$funda_netprofit_margin` | 毛利率 / 净利率 |
-| `$funda_profit_dedt` | 扣非净利润 |
-| `$funda_ocfps` | 每股经营现金流 |
-| `$funda_current_ratio` / `$funda_quick_ratio` | 流动比率 / 速动比率 |
-| `$funda_netprofit_yoy` / `$funda_or_yoy` / `$funda_tr_yoy` | 归母净利 / 营收 / 营业总收入同比（%） |
-
-**财报科目子集**（前缀 `funda_fs_`，同为 PIT 日频；后续可能扩展更多三大表科目）：
-
-| 字段 | 说明 |
-|------|------|
-| `$funda_fs_working_capital` | 营运资本 |
-| `$funda_fs_ebit` | 息税前利润 |
-| `$funda_fs_rd_exp` | 研发费用（部分股票为 NaN） |
-
-**披露日历特征**：
-
-| 字段 | 说明 |
-|------|------|
-| `$funda_days_since_disclose` | 距**上一期**财报披露**生效日**的交易日数（生效日=0）；严格 PIT |
-| `$funda_days_since_quarter_start` | 距当前季报区间首日（1/1、4/1、7/1、10/1）的交易日数 |
-
-**使用建议**（基本面/慢因子）：
-
-- 挖掘 / 评估基本面因子时，启动 CLI 使用 **`--label-col label_10d_close_to_close`**（价量类用 `label_1d_close_to_close`，见下文 label 选用表）。
-- 基本面列在日频上**阶跃+持有**，`TS_PCTCHANGE($funda_roe, 20)` 等窗口单位为**交易日**；约 60 日 ≈ 一季。
-- 截面组合建议 `CS_NEUTRALIZE(..., CS_BUCKET(LOG($float_cap), 10))` 市值中性；比率类可先 `CS_WINSORIZE` 再 `RANK` 截面排序。
-- 事件窗示例：`TS_PCTCHANGE($xxx, $funda_days_since_disclose)`（披露生效后变量 xxx 的变化）。
-
-> 行尾可写 `#` 注释；字符串内 `#` 保留。
+{{FUNDAMENTAL_SECTION}}
 
 ---
 
@@ -172,6 +136,16 @@ tri_gap = CHIP_COM_W_GAP($adj_close, $adj_low, $adj_high, $volume, 40, $vwap, 64
 算子均为**大写**（如 `TS_MEAN`、`DELTA`）。**仅支持位置参数**；禁止 `name=value` 关键字写法。
 
 {{OPERATOR_CATALOG}}
+
+---
+
+### 中性化使用指南
+
+**1. 中性化的本质与判定。** 因子变量往往在多个维度上同时暴露——既押了你想要的 alpha，也搭便车押了若干你并不想要的风险维度（市值、行业、盈利质量等）。中性化的本质是剥离"你不想押注、但变量恰好暴露在上的维度"，只留下真正的 alpha 残差。判定准则只有一条：**该变量在某维度的暴露，是不是我故意要押注的 alpha？** 是 → 不中性化；否 → 中性化。量价变量与市值的相关性分三档，紧迫性也分三档：原始量（`amount`/`volume`，A 股截面 Spearman ~0.55）几乎必须中性化，否则等于隐性押注大市值；比率类（`amt_to_cap`，~0.33）建议中性化但非必须，取决于 alpha 是否容忍"小市值高换手"暴露；波动率（~0.10）收益有限。已 `CS_ZSCORE` 且市值暴露本身就是 alpha 的（如 PEAD、低关注度）不要再中性化，否则徒劳甚至略降 IC。
+
+**2. 对中间变量做，还是最后做。** 通常的处理顺序是 `winsorize → 中性化 → 标准化 → 合成`：winsorize 在前是为了避免极值扭曲分组回归，标准化在中性化之后是为了把残差拉到可比尺度方便加权，合成在最后且通常不再整体中性化。合成路线上，"分信号各自中性化、最后合成"在历史数据上 IC 最稳最高，是首选；"多变量合成后整体中性化"会搅动已调好的尺度配比，慎用；"单变量叠加多重处理后直接出因子"几乎必洗光信号，应避免。同一变量稳妥起见最多中性化一次，需要剥多个维度时把第二维度交给辅助信号去隐式吸收。
+
+**3. 按什么分组做。** 市值用 `CS_BUCKET(LOG($float_cap), 10)`（务必取 log、10 档、每组数百只），盈利质量用 `CS_BUCKET($funda_ROIC_TTM, 10)`，行业用申万一级且仅当不押注行业景气时使用。分组键必须**稳定低噪、与剥离维度同义**——高频变量需先 `TS_MEAN` 平滑或取 LOG，绝不能用成交额/换手率代理市值（会顺带洗掉 alpha）。
 
 ---
 
@@ -239,7 +213,7 @@ tri_gap = CHIP_COM_W_GAP($adj_close, $adj_low, $adj_high, $volume, 40, $vwap, 64
 """
 
 
-def _tool_call_examples_section(*, include_submit: bool = True) -> str:
+def _tool_call_examples_section(*, include_submit: bool = True, include_fundamentals: bool = True) -> str:
     examples = [
         {
             "name": "eval_on_train_set",
@@ -255,21 +229,26 @@ def _tool_call_examples_section(*, include_submit: bool = True) -> str:
                 "factor_name": "ma_w_dev",
             },
         },
-        {
-            "name": "eval_on_train_set",
-            "arguments": {
-                "multi_line_expr": "roe_z = CS_ZSCORE(CS_WINSORIZE($funda_roe, 0.01, 0.99))\ngro = CS_ZSCORE(CS_WINSORIZE($funda_netprofit_yoy, 0.01, 0.99))\nCS_NEUTRALIZE(MULTIPLY(roe_z, gro), CS_BUCKET(LOG($float_cap), 10))",
-                "factor_name": "funda_roe_growth_neutral",
-            },
-        },
+    ]
+    if include_fundamentals:
+        examples.append(
+            {
+                "name": "eval_on_train_set",
+                "arguments": {
+                    "multi_line_expr": "roe_z = CS_ZSCORE(CS_WINSORIZE($funda_roe, 0.01, 0.99))\ngro = CS_ZSCORE(CS_WINSORIZE($funda_netprofit_yoy, 0.01, 0.99))\nCS_NEUTRALIZE(MULTIPLY(roe_z, gro), CS_BUCKET(LOG($float_cap), 10))",
+                    "factor_name": "funda_roe_growth_neutral",
+                },
+            }
+        )
+    examples.append(
         {
             "name": "eval_on_train_set",
             "arguments": {
                 "multi_line_expr": "TS_RANK($ret, 20)",
                 "factor_name": "ret_rank20",
             },
-        },
-    ]
+        }
+    )
     submit_note = ""
     if include_submit:
         examples.append(
@@ -287,8 +266,9 @@ def _tool_call_examples_section(*, include_submit: bool = True) -> str:
             "查重失败则读 `similarity.top_neighbors[].expr` 改写后重试。"
         )
     body = json.dumps(examples, ensure_ascii=False, indent=2)
+    dims = "动量、周线偏离、基本面、收益秩" if include_fundamentals else "动量、周线偏离、收益秩"
     note = (
-        "上表为同轮并行 `eval_on_train_set` 示例（动量、周线偏离、基本面、收益秩）。"
+        f"上表为同轮并行 `eval_on_train_set` 示例（{dims}）。"
         "建议每轮 3～5 条并行；仅当 train 有满意候选时，偶尔对少数 factor 做 val 抽检。"
         + submit_note
     )
@@ -311,7 +291,7 @@ _SUBMIT_DISABLED_NOTE = """
 """
 
 
-def _label_section_markdown(label_col: str) -> str:
+def _label_section_markdown(label_col: str, *, include_fundamentals: bool = True) -> str:
     desc = _LABEL_DESCRIPTIONS.get(label_col, "panel 内预计算的前瞻收益列")
     lines = [
         f"**本次会话 label 列：`{label_col}`** — {desc}。",
@@ -334,7 +314,11 @@ def _label_section_markdown(label_col: str) -> str:
             "",
             "| 因子类型 | 推荐 label |",
             "|----------|------------|",
-            "| 基本面（主要用 `$funda_*`） | `label_10d_close_to_close` |",
+            *(
+                ["| 基本面（主要用 `$funda_*`） | `label_10d_close_to_close` |"]
+                if include_fundamentals
+                else []
+            ),
             "| 价量（OHLC / `$ret` / `$volume` / 筹码等） | `label_1d_close_to_close` |",
             "",
             "本次会话已配置为上表「本次」行；勿在 tool 参数中切换 label。",
@@ -358,24 +342,86 @@ def _label_section_markdown(label_col: str) -> str:
     return "\n".join(lines)
 
 
+_FUNDAMENTAL_SECTION_MD = """### 基本面与披露日历（`build_panel --with-fundamentals` 并入）
+
+季频 `fina_indicator` 经**严格 PIT** 展开为日频：财报公告日 D **不可用**，**D 的下一交易日**起该期字段才可引用；两期之间 **ffill** 保持最近已披露值。披露前为 NaN 属正常，勿当缺失错误。
+
+**财务指标**（`fina_indicator` → 日频，前缀 `funda_`）：
+
+| 字段 | 说明 |
+|------|------|
+| `$funda_roe` / `$funda_roa` | 净资产收益率 / 总资产报酬率 |
+| `$funda_debt_to_assets` | 资产负债率 |
+| `$funda_eps` / `$funda_bps` | 每股收益 / 每股净资产 |
+| `$funda_grossprofit_margin` / `$funda_netprofit_margin` | 毛利率 / 净利率 |
+| `$funda_profit_dedt` | 扣非净利润 |
+| `$funda_ocfps` | 每股经营现金流 |
+| `$funda_current_ratio` / `$funda_quick_ratio` | 流动比率 / 速动比率 |
+| `$funda_netprofit_yoy` / `$funda_or_yoy` / `$funda_tr_yoy` | 归母净利 / 营收 / 营业总收入同比（%） |
+
+**财报科目**（前缀 `funda_fs_`，同为 PIT 日频；`--with-statements` 时含约 70 个三大表科目）：
+
+| 字段 | 说明 |
+|------|------|
+| `$funda_fs_working_capital` / `$funda_fs_ebit` | 营运资本 / 息税前利润 |
+| `$funda_fs_total_assets` / `$funda_fs_total_liabilities` / `$funda_fs_total_equity` | 资产 / 负债 / 权益（时点） |
+| `$funda_fs_oper_revenue_ytd` / `$funda_fs_net_profit_parent_ytd` | 营收 / 归母净利（年初至今累计，`_ytd`） |
+| `$funda_fs_ocf_net_ytd` | 经营现金流净额（累计） |
+
+> 三大表 `_ytd` 为**年初至今累计**（Q1=当季，中报/三季报/年报累计）；资产负债表科目为时点值。完整清单见 `docs/panel_fundamental_fields.md` §3。
+
+**披露日历特征**：
+
+| 字段 | 说明 |
+|------|------|
+| `$funda_days_since_disclose` | 距**上一期**财报披露**生效日**的交易日数（生效日=0）；严格 PIT |
+| `$funda_days_since_quarter_start` | 距当前季报区间首日（1/1、4/1、7/1、10/1）的交易日数 |
+
+**使用建议**（基本面/慢因子）：
+
+- 基本面列在日频上**阶跃+持有**，`TS_PCTCHANGE($funda_roe, 20)` 等窗口单位为**交易日**；约 60 日 ≈ 一季。
+- 截面组合建议 `CS_NEUTRALIZE(..., CS_BUCKET(LOG($float_cap), 10))` 市值中性；比率类可先 `CS_WINSORIZE` 再 `RANK` 截面排序。
+- 事件窗示例：`TS_PCTCHANGE($xxx, $funda_days_since_disclose)`（披露生效后变量 xxx 的变化）。
+
+> 行尾可写 `#` 注释；字符串内 `#` 保留。"""
+
+_FUNDAMENTAL_DISABLED_MD = (
+    "### 基本面\n\n"
+    "**本次未载入基本面列**：请勿使用任何 `$funda_*` / `$funda_fs_*` 字段"
+    "（本会话仅提供价量/行情列，专注价量因子）。\n\n"
+    "> 行尾可写 `#` 注释；字符串内 `#` 保留。"
+)
+
+
 def build_system_prompt(
     *,
     include_operator_catalog: bool = True,
     enable_submit: bool = True,
     extra_instructions: str = "",
     label_col: str = DEFAULT_LABEL_COL,
+    include_fundamentals: bool = True,
 ) -> str:
     catalog = operator_catalog_markdown() if include_operator_catalog else "（本次未注入算子清单）"
     mls_block = mls_fmb_thresholds_markdown(label_col=label_col)
-    label_block = _label_section_markdown(label_col)
+    label_block = _label_section_markdown(label_col, include_fundamentals=include_fundamentals)
+    funda_block = _FUNDAMENTAL_SECTION_MD if include_fundamentals else _FUNDAMENTAL_DISABLED_MD
     body = (
         FACTOR_MINING_INTERFACE_PROMPT.replace("{{OPERATOR_CATALOG}}", catalog)
         .replace("{{MLS_FMB_THRESHOLDS}}", mls_block)
         .replace("{{LABEL_SECTION}}", label_block)
+        .replace("{{FUNDAMENTAL_SECTION}}", funda_block)
     )
+    if not include_fundamentals:
+        body = body.replace("、**基本面（`funda_*`）**、", "、")
     if not enable_submit:
         body = body.replace("**【会话完成条件】**", "**【会话完成条件（本次未启用 submit）】**")
-    parts = [body.strip(), _tool_call_examples_section(include_submit=enable_submit)]
+    parts = [
+        body.strip(),
+        _tool_call_examples_section(
+            include_submit=enable_submit,
+            include_fundamentals=include_fundamentals,
+        ),
+    ]
     if not enable_submit:
         parts.append(_SUBMIT_DISABLED_NOTE.strip())
     if extra_instructions.strip():

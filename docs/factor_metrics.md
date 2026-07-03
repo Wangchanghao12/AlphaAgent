@@ -105,10 +105,10 @@ uv run python scripts/eval_factor.py --expr-file your.dsl --report --start-time 
 
 ## panel 更新后增量 realign（`realign_factorlib.py`）
 
-`build_panel.py --update` 追加新交易日后，若因子库 index **前缀不变**（仅尾部追加行），可用增量 realign：
+`update_panel.py` 追加新交易日后，若因子库 index **前缀不变**（仅尾部追加行），可用增量 realign：
 
 ```bash
-uv run python scripts/build_panel.py --update
+uv run python scripts/update_panel.py --universe zz1000
 uv run python scripts/realign_factorlib.py
 ```
 

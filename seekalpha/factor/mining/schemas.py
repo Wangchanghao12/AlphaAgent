@@ -15,6 +15,7 @@ class SessionCreateRequest:
     val_start: str = "2022-01-01"
     val_end: str = "2023-12-31"
     label_col: str = DEFAULT_LABEL_COL
+    include_fundamentals: bool = True
 
 
 @dataclass

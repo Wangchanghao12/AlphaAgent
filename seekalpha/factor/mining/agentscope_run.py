@@ -16,6 +16,7 @@ from agentscope.permission import PermissionContext, PermissionMode
 from agentscope.state import AgentState
 from agentscope.workspace import LocalWorkspace
 
+from seekalpha.factor.mining.env_settings import resolve_max_parallel_eval
 from seekalpha.factor.mining.schemas import SessionCreateRequest
 from seekalpha.factor.mining.service import StockEvalService
 from seekalpha.factor.mining.agentscope_tools import build_factor_eval_toolkit, context_to_openai_messages
@@ -106,7 +107,9 @@ async def run_factor_mining_agentscope(
     repo_root: Path | None = None,
 ) -> dict[str, Any]:
     """AgentScope 版挖掘入口：与 run_factor_mining 配置一致，CLI 流式输出。"""
-    service = service or StockEvalService()
+    service = service or StockEvalService(
+        max_parallel_eval=resolve_max_parallel_eval(config.max_parallel_eval),
+    )
     root = repo_root or _repo_root()
     ctx = config.eval
     session_resp = service.create_session(
@@ -117,6 +120,7 @@ async def run_factor_mining_agentscope(
             val_start=ctx.val_start,
             val_end=ctx.val_end,
             label_col=ctx.label_col,
+            include_fundamentals=ctx.include_fundamentals,
         )
     )
 
@@ -140,6 +144,7 @@ async def run_factor_mining_agentscope(
         enable_submit=config.enable_submit,
         extra_instructions=extra_instructions,
         label_col=ctx.label_col,
+        include_fundamentals=ctx.include_fundamentals,
     )
 
     log_dir = Path(log_dir)
@@ -157,8 +162,10 @@ async def run_factor_mining_agentscope(
     def _emit(event: str, payload: dict[str, Any]) -> None:
         with log_jsonl.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": _now(), "event": event, **payload}, ensure_ascii=False, default=str) + "\n")
+            f.flush()
 
     _emit("session_start", {"model": config.model, "max_turns": config.max_turns, "framework": "agentscope"})
+    _emit("user_message", {"turn": 0, "content": user_message})
 
     agent = await create_mining_agent(
         config=config,
@@ -181,10 +188,12 @@ async def run_factor_mining_agentscope(
         if printer is not None:
             printer.turn(outer_turn)
 
-        observer = MiningStreamObserver(printer=printer, emit=None, turn=outer_turn)
+        observer = MiningStreamObserver(printer=printer, emit=_emit, turn=outer_turn)
 
-        def _on_tool_emit(event: str, payload: dict[str, Any]) -> None:
+        def _on_stream_emit(event: str, payload: dict[str, Any]) -> None:
             _emit(event, payload)
+            if event != "tool_results":
+                return
             for row in payload.get("results") or []:
                 res = row.get("result") if isinstance(row.get("result"), dict) else {}
                 tool_call_rows.append(
@@ -204,7 +213,10 @@ async def run_factor_mining_agentscope(
                         )
                     )
 
-        observer.emit = _on_tool_emit
+        observer.emit = _on_stream_emit
+
+        if outer_turn > 0 or pending != user_message:
+            _emit("user_message", {"turn": outer_turn, "content": pending})
 
         user_msg = UserMsg(name="user", content=pending)
         had_tools = await stream_to_cli(

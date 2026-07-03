@@ -1,4 +1,4 @@
-﻿# Python / uv
+# Python / uv
 .venv/
 __pycache__/
 *.py[cod]
@@ -13,9 +13,15 @@ ref_projects/
 skills/
 
 # 本地大文件（可重建）
+artifacts/market/
 artifacts/panel/
 artifacts/fundamental/
+artifacts/industry/
+artifacts/index/
 logs/
+
+# 数据发布打包产物
+dist/
 
 # factorzoo：同步 expressions/*.dsl + 挖掘元数据；memmap / parquet 不入库
 artifacts/factorzoo/**/*

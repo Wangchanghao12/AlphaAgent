@@ -45,6 +45,12 @@ class SessionStore:
         t0 = time.perf_counter()
         cov_start, cov_end = ctx.coverage_range()
         panel = load_panel(ctx.panel_path)
+        dropped_funda = 0
+        if not ctx.include_fundamentals:
+            funda_cols = [c for c in panel.columns if str(c).startswith("funda_")]
+            if funda_cols:
+                panel = panel.drop(columns=funda_cols)
+                dropped_funda = len(funda_cols)
         panel = slice_panel(panel, start=cov_start, end=cov_end)
         load_ms = (time.perf_counter() - t0) * 1000
         session_id = uuid.uuid4().hex
@@ -52,7 +58,13 @@ class SessionStore:
             session_id=session_id,
             ctx=ctx,
             panel=panel,
-            meta={"load_ms": load_ms, "coverage_start": cov_start, "coverage_end": cov_end},
+            meta={
+                "load_ms": load_ms,
+                "coverage_start": cov_start,
+                "coverage_end": cov_end,
+                "include_fundamentals": ctx.include_fundamentals,
+                "dropped_fundamental_cols": dropped_funda,
+            },
         )
         with self._lock:
             self._sessions[session_id] = session

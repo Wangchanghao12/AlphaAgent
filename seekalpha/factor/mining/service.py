@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from seekalpha.factor.mining.context import StockEvalContext
+from seekalpha.factor.mining.env_settings import resolve_max_parallel_eval
 from seekalpha.factor.mining.response import format_eval_response
 from seekalpha.factor.mining.schemas import (
     EvalTrainRequest,
@@ -21,9 +22,15 @@ from seekalpha.factor.eval import evaluate_factor_on_split
 class StockEvalService:
     """进程内评估服务，供 mining FactorEvalTools 调用。"""
 
-    def __init__(self, *, sessions: SessionStore | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        sessions: SessionStore | None = None,
+        max_parallel_eval: int | None = None,
+    ) -> None:
         self.sessions = sessions or SessionStore()
-        self._eval_lock = threading.Lock()
+        self.max_parallel_eval = resolve_max_parallel_eval(max_parallel_eval)
+        self._eval_semaphore = threading.Semaphore(self.max_parallel_eval)
 
     def create_session(self, req: SessionCreateRequest) -> SessionCreateResponse:
         ctx = StockEvalContext(
@@ -33,6 +40,7 @@ class StockEvalService:
             val_start=req.val_start,
             val_end=req.val_end,
             label_col=req.label_col,
+            include_fundamentals=req.include_fundamentals,
         )
         session = self.sessions.create(ctx)
         cols = list(session.panel.columns[:12])
@@ -68,7 +76,7 @@ class StockEvalService:
         return format_eval_response(raw, expected_sign=expected_sign)
 
     def eval_train(self, req: EvalTrainRequest) -> dict[str, Any]:
-        with self._eval_lock:
+        with self._eval_semaphore:
             return self._run_one(
                 req.session_id,
                 split="train",
@@ -79,7 +87,7 @@ class StockEvalService:
             )
 
     def eval_val(self, req: EvalValRequest) -> dict[str, Any]:
-        with self._eval_lock:
+        with self._eval_semaphore:
             return self._run_one(
                 req.session_id,
                 split="val",

@@ -6,34 +6,22 @@ import numpy as np
 import pandas as pd
 
 from seekalpha.core.types import OUTPUT_COLUMNS
-from seekalpha.data.panel import (
-
+from seekalpha.data.market_fetch import (
     _expand_update_dates,
-
     _group_contiguous_trade_dates,
-
     _merge_raw_daily,
-
     _panel_missing_trade_dates,
-
-    _rederive_since,
-
     _select_daily_basic,
-
+)
+from seekalpha.data.panel import (
+    _rederive_since,
     build_panel_from_hq,
-
     count_suspect_adjfactor_rows,
-
     find_adjfactor_jump_instruments,
-
     find_suspect_adjfactor_instruments,
-
     save_panel,
-
     load_panel,
-
     slice_panel,
-
 )
 
 from seekalpha.data.universe import apply_is_st, mark_not_st
@@ -468,5 +456,53 @@ def test_save_load_panel_roundtrip(mini_panel, tmp_path):
     assert loaded.shape == mini_panel.shape
 
     assert list(loaded.columns) == list(mini_panel.columns)
+
+
+def test_build_panel_offline_from_cache(mini_hq, tmp_path):
+    """离线：save hq 缓存 → build_panel(market_path=...) 复现量价 panel。"""
+    from seekalpha.data.market_fetch import save_market_hq
+    from seekalpha.data.panel import build_panel
+
+    hq_path = tmp_path / "daily_hq.parquet"
+    save_market_hq(mini_hq, hq_path)
+
+    out_path = tmp_path / "panel.parquet"
+    panel = build_panel(
+        out_path=out_path,
+        market_path=hq_path,
+        universe_mask=False,
+        verbose=False,
+    )
+    assert list(panel.columns) == OUTPUT_COLUMNS
+    assert panel.shape[0] == mini_hq.shape[0]
+    assert out_path.is_file()
+
+
+def test_update_panel_from_hq_appends_and_rederives(mini_hq, tmp_path):
+    """离线增量：老 panel + 新一日 hq → 尾部 merge 且新日 ret 被重算为有限值。"""
+    from seekalpha.data.panel import build_panel_from_hq, save_panel, update_panel_from_hq
+
+    # 老 panel：前 4 个交易日
+    first_days = mini_hq.iloc[:12]
+    old_panel = build_panel_from_hq(first_days, universe_mask=False)
+    panel_path = tmp_path / "panel.parquet"
+    save_panel(old_panel, panel_path)
+
+    # 增量：第 5 个交易日
+    new_hq = mini_hq.iloc[12:15]
+    backfill_since = first_days.index.get_level_values("datetime").max()
+
+    merged = update_panel_from_hq(
+        new_hq,
+        backfill_since,
+        out_path=panel_path,
+        universe_mask=False,
+        verbose=False,
+    )
+
+    new_dt = new_hq.index.get_level_values("datetime").min()
+    assert new_dt in merged.index.get_level_values("datetime")
+    # 新增交易日的 ret 应由 backfill 重算为有限值（衔接上一交易日）
+    assert np.isfinite(merged.loc[(new_dt, "000001.SZ"), "ret"])
 
 

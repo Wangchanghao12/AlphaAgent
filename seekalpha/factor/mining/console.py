@@ -62,6 +62,21 @@ def _submit_failure_detail(result: dict[str, Any]) -> str:
     return detail
 
 
+def _mls_fmb_parts(mls: Any) -> list[str]:
+    if not isinstance(mls, dict) or not mls:
+        return []
+    parts: list[str] = []
+    for key, label in (
+        ("mean_rho", "ρ"),
+        ("nw_t_rho", "NWρ"),
+        ("nw_t_ls", "NWls"),
+        ("mls", "MLS"),
+    ):
+        if key in mls and mls[key] is not None:
+            parts.append(f"{label}={_fmt_num(mls[key])}")
+    return parts
+
+
 def _metrics_parts(
     summ: dict[str, Any],
     rob: dict[str, Any],
@@ -84,6 +99,7 @@ def _metrics_parts(
         f"D1={d1}",
         f"D10={d10}",
     ]
+    parts.extend(_mls_fmb_parts(summ.get("mls_fmb")))
     if isinstance(sign_check, dict) and sign_check.get("matches_expected_sign") is not None:
         parts.append("sign" + ("✓" if sign_check["matches_expected_sign"] else "✗"))
     return parts

@@ -18,6 +18,8 @@ class StockEvalContext:
     val_start: str = "2022-01-01"
     val_end: str = "2023-12-31"
     label_col: str = DEFAULT_LABEL_COL
+    include_fundamentals: bool = True
+    """是否载入基本面列（``funda_*``）。挖价量因子时可关闭以省内存。"""
 
     def split_range(self, split: str) -> tuple[str, str]:
         if split == "train":

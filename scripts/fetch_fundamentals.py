@@ -7,6 +7,8 @@ panel enrich 时按 panel 内 instrument 自然 join，无需在拉数阶段指�
 示例:
   uv run python scripts/fetch_fundamentals.py --start 2015-01-01 --end 2026-12-31
   uv run python scripts/fetch_fundamentals.py --periods 20240331 20240630
+  # 附带三大表（income/balancesheet/cashflow，需 VIP 5000 积分）:
+  uv run python scripts/fetch_fundamentals.py --start 2015-01-01 --end 2026-12-31 --with-statements
   # 积分不足、无 VIP 时逐股慢拉（须指定 universe）:
   uv run python scripts/fetch_fundamentals.py --start 2023-01-01 --end 2024-06-30 --universe zz1000 --no-vip
 """
@@ -83,6 +85,11 @@ def main() -> None:
         action="store_true",
         help="禁用 fina_indicator_vip，强制按股票逐只拉取（慢，仅积分不足时用）",
     )
+    parser.add_argument(
+        "--with-statements",
+        action="store_true",
+        help="额外拉取三大表(income/balancesheet/cashflow)并入季频缓存的 funda_fs_* 列",
+    )
     parser.add_argument("--max-retries", type=int, default=5)
     parser.add_argument("--timeout", type=int, default=60)
     args = parser.parse_args()
@@ -110,6 +117,9 @@ def main() -> None:
         ts_codes = _resolve_ts_codes(args.universe, range_start, range_end)
         print(f"拉取模式: 逐股（{len(ts_codes)} 只 × {len(periods)} 期）")
 
+    if args.with_statements:
+        print("附加拉取: 三大表 income / balancesheet / cashflow（funda_fs_* 原始值）")
+
     fetch_and_save_periods(
         periods,
         ts_codes=ts_codes,
@@ -118,6 +128,7 @@ def main() -> None:
         sleep_sec=args.sleep,
         verbose=True,
         use_vip=use_vip,
+        with_statements=args.with_statements,
     )
 
 

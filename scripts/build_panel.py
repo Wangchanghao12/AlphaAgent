@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""
-构建 Panel
-- ZZ1000 全量: python scripts/build_panel.py --start 2024-01-01 --end 2024-06-30 --universe zz1000
-- 全市场按日: python scripts/build_panel.py --start 2024-01-01 --end 2024-01-31
-- 增量: python scripts/build_panel.py --update --universe zz1000
-- 基本面: python scripts/fetch_fundamentals.py --periods 20240331 && python scripts/build_panel.py --with-fundamentals ...
+"""从本地 hq 缓存**离线**构建 Panel（不联网）。
+
+前置：先用 scripts/fetch_market.py 拉取行情写入 hq 缓存，
+      用 scripts/fetch_fundamentals.py 拉取基本面缓存。
+
+示例:
+  # 从 hq 缓存全量构建（含基本面 + 行业）:
+  uv run python scripts/build_panel.py --with-fundamentals --with-industry
+  # 仅量价 panel（不 enrich）:
+  uv run python scripts/build_panel.py
+  # 对已有 panel 仅补 enrich（不重建量价）:
+  uv run python scripts/build_panel.py --enrich-only --with-industry
+  # 增量更新（新交易日）请用: scripts/update_panel.py
 """
 
 from __future__ import annotations
@@ -19,49 +26,30 @@ sys.path.insert(0, str(ROOT))
 from seekalpha.core.paths import (  # noqa: E402
     DISCLOSURE_CALENDAR_PATH,
     FUNDAMENTAL_QUARTERLY_PATH,
+    INDUSTRY_SW_PATH,
+    MARKET_HQ_PATH,
     PANEL_PATH,
 )
-from seekalpha.data import tushare_client  # noqa: E402
 from seekalpha.data.fundamental import enrich_panel_fundamentals, list_funda_columns  # noqa: E402
-from seekalpha.data.panel import build_panel, load_panel, save_panel, update_panel  # noqa: E402
+from seekalpha.data.industry import enrich_panel_industry  # noqa: E402
+from seekalpha.data.panel import build_panel, load_panel, save_panel  # noqa: E402
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="构建 / 增量更新 Panel")
-    parser.add_argument("--start", type=str, help="起始日期 YYYY-MM-DD")
-    parser.add_argument("--end", type=str, help="结束日期 YYYY-MM-DD")
-    parser.add_argument("--out", type=Path, default=PANEL_PATH, help="输出 parquet 路径")
+    parser = argparse.ArgumentParser(description="离线构建 Panel（从 hq 缓存）")
+    parser.add_argument("--start", type=str, help="切片起始日期 YYYY-MM-DD（默认全量）")
+    parser.add_argument("--end", type=str, help="切片结束日期 YYYY-MM-DD（默认全量）")
+    parser.add_argument("--out", type=Path, default=PANEL_PATH, help="输出 panel parquet 路径")
     parser.add_argument(
-        "--universe",
-        type=str,
-        default="zz1000",
-        help="指数成分池，如 zz1000 / zz500 / hs300；传 none 表示全市场按日拉取",
+        "--market-cache",
+        type=Path,
+        default=MARKET_HQ_PATH,
+        help="hq 行情缓存路径（由 fetch_market.py 生成）",
     )
     parser.add_argument(
-        "--update",
+        "--no-universe-mask",
         action="store_true",
-        help="增量更新：从 panel 末日起补至最新交易日（自动填 gap）",
-    )
-    parser.add_argument(
-        "--dates",
-        type=str,
-        nargs="+",
-        default=None,
-        help="增量指定交易日，如 2024-06-28",
-    )
-    parser.add_argument("--sleep", type=float, default=0.35, help="Tushare 请求间隔秒")
-    parser.add_argument("--batch-size", type=int, default=40, help="按股票池拉取时每批股票数")
-    parser.add_argument(
-        "--max-retries",
-        type=int,
-        default=5,
-        help="网络超时/限流时最大重试次数（0 表示不重试）",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=int,
-        default=60,
-        help="单次 Tushare HTTP 请求超时秒数",
+        help="不做可交易/非ST过滤（默认过滤）",
     )
     parser.add_argument(
         "--with-fundamentals",
@@ -71,7 +59,7 @@ def main() -> None:
     parser.add_argument(
         "--enrich-only",
         action="store_true",
-        help="仅对已有 panel 做基本面 enrich（不拉行情）",
+        help="仅对已有 panel 做 enrich（不重建量价）",
     )
     parser.add_argument(
         "--quarterly",
@@ -90,11 +78,23 @@ def main() -> None:
         action="store_true",
         help="不计算 funda_days_since_disclose 等披露距离特征",
     )
+    parser.add_argument(
+        "--with-industry",
+        action="store_true",
+        help="并入申万一级行业码 industry_sw_l1（缓存缺失时会联网拉取）",
+    )
+    parser.add_argument(
+        "--refresh-industry",
+        action="store_true",
+        help="强制重新从 Tushare 拉取行业成员（忽略本地缓存）",
+    )
+    parser.add_argument(
+        "--industry-path",
+        type=Path,
+        default=INDUSTRY_SW_PATH,
+        help="申万一级行业成员缓存路径",
+    )
     args = parser.parse_args()
-
-    tushare_client.configure(max_retries=args.max_retries, timeout=args.timeout)
-
-    universe = None if args.universe.lower() == "none" else args.universe
 
     if args.enrich_only:
         panel = load_panel(args.out)
@@ -104,45 +104,34 @@ def main() -> None:
             disclosure_path=args.disclosure,
             include_disclosure_features=not args.no_disclosure_distance,
         )
+        if args.with_industry:
+            panel = enrich_panel_industry(
+                panel,
+                membership_path=args.industry_path,
+                refresh=args.refresh_industry,
+            )
         save_panel(panel, args.out)
         funda_cols = list_funda_columns(panel.columns)
         print(f"已 enrich: {args.out} shape={panel.shape}")
         if funda_cols:
             print(f"基本面列 ({len(funda_cols)}): {funda_cols[:8]}{'...' if len(funda_cols) > 8 else ''}")
+        if args.with_industry:
+            print("已并入行业列: industry_sw_l1")
         return
-
-    if args.update:
-        panel = update_panel(
-            args.out,
-            dates=args.dates,
-            sleep_sec=args.sleep,
-            batch_size=args.batch_size,
-            universe=universe,
-        )
-        if args.with_fundamentals:
-            panel = enrich_panel_fundamentals(
-                panel,
-                quarterly_path=args.quarterly,
-                disclosure_path=args.disclosure,
-                include_disclosure_features=not args.no_disclosure_distance,
-            )
-            save_panel(panel, args.out)
-        return
-
-    if not args.start or not args.end:
-        parser.error("全量构建需指定 --start 和 --end；增量请用 --update")
 
     build_panel(
         start=args.start,
         end=args.end,
         out_path=args.out,
-        sleep_sec=args.sleep,
-        universe=universe,
-        batch_size=args.batch_size,
+        market_path=args.market_cache,
+        universe_mask=not args.no_universe_mask,
         with_fundamentals=args.with_fundamentals,
         quarterly_path=args.quarterly,
         disclosure_path=args.disclosure,
         include_disclosure_features=not args.no_disclosure_distance,
+        with_industry=args.with_industry,
+        industry_path=args.industry_path,
+        refresh_industry=args.refresh_industry,
     )
 
 

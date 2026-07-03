@@ -360,9 +360,14 @@ def enrich_panel_fundamentals(
     include_disclosure_features: bool = True,
     dtype: str = "float32",
 ) -> pd.DataFrame:
-    """将季频基本面 PIT 展开并 left join 到 panel。"""
-    if "funda_days_to_disclose" in panel.columns:
-        panel = panel.drop(columns=["funda_days_to_disclose"])
+    """将季频基本面 PIT 展开并 left join 到 panel。
+
+    幂等：先删除 panel 中已有的 ``funda_*`` 列再重新展开，因此重复 enrich、
+    或缓存新增列（如 ``--with-statements`` 后的 ``funda_fs_*``）时都会全量刷新。
+    """
+    stale = [c for c in panel.columns if str(c).startswith("funda_")]
+    if stale:
+        panel = panel.drop(columns=stale)
 
     panel = expand_quarterly_fundamentals_pit(
         panel,

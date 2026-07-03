@@ -1,4 +1,4 @@
-# AlphaSeeker 开发记录
+# AlphaAgent 开发记录
 
 > 截至 2026-07-02。统一 monorepo `seekalpha`：Tushare 数据源 + AlphaAgent DSL + FactorZoo，目标覆盖因子研究 → 模型 → 回测 → 实盘。
 

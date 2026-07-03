@@ -155,4 +155,6 @@ if __name__ == "__main__":
     # 分布近似
     D:\AlphaAgent-Stock\data\factors\expressions\massasym_z_crowd_meanratio_z.dsl 
 
+    # 基本面
+    .\artifacts\factorzoo\stock_1d\expressions\roe_lowvol_center_smooth.dsl
     """

@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from seekalpha.factor.mining.env_settings import resolve_max_parallel_eval
 from seekalpha.factor.mining.schemas import SessionCreateRequest
 from seekalpha.factor.mining.service import StockEvalService
 from seekalpha.factor.mining.config import MiningConfig
@@ -34,7 +35,9 @@ def run_factor_mining(
     verbose: bool = False,
     repo_root: Path | None = None,
 ) -> dict[str, Any]:
-    service = service or StockEvalService()
+    service = service or StockEvalService(
+        max_parallel_eval=resolve_max_parallel_eval(config.max_parallel_eval),
+    )
     root = repo_root or _repo_root()
     ctx = config.eval
     session_resp = service.create_session(
@@ -45,6 +48,7 @@ def run_factor_mining(
             val_start=ctx.val_start,
             val_end=ctx.val_end,
             label_col=ctx.label_col,
+            include_fundamentals=ctx.include_fundamentals,
         )
     )
 
@@ -69,6 +73,7 @@ def run_factor_mining(
         enable_submit=config.enable_submit,
         extra_instructions=extra_instructions,
         label_col=ctx.label_col,
+        include_fundamentals=ctx.include_fundamentals,
     )
 
     printer = ConsolePrinter() if verbose else None

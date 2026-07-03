@@ -113,7 +113,7 @@ class _PendingToolCall:
 
 
 class MiningStreamObserver:
-    """挖掘流式事件观察者：按 tool_call_id 跟踪并行工具调用。"""
+    """挖掘流式事件观察者：按 tool_call_id 跟踪并行工具调用，并流式落盘 agent 输出。"""
 
     def __init__(
         self,
@@ -128,6 +128,33 @@ class MiningStreamObserver:
         self.had_tool_calls = False
         self.tool_call_count = 0
         self._pending: dict[str, _PendingToolCall] = {}
+        self._thinking_parts: list[str] = []
+        self._text_parts: list[str] = []
+        self._logged_tool_calls: set[str] = set()
+
+    def _emit_block(self, event: str, content: str) -> None:
+        if self.emit is None or not content:
+            return
+        self.emit(event, {"turn": self.turn, "content": content})
+
+    def on_thinking_start(self) -> None:
+        self._thinking_parts.clear()
+
+    def on_thinking_delta(self, delta: str) -> None:
+        if delta:
+            self._thinking_parts.append(delta)
+
+    def on_thinking_end(self) -> None:
+        self._emit_block("agent_thinking", "".join(self._thinking_parts))
+        self._thinking_parts.clear()
+
+    def on_text_delta(self, delta: str) -> None:
+        if delta:
+            self._text_parts.append(delta)
+
+    def on_text_end(self) -> None:
+        self._emit_block("assistant_message", "".join(self._text_parts))
+        self._text_parts.clear()
 
     def on_tool_call_start(self, tool_call_id: str, name: str) -> None:
         self.had_tool_calls = True
@@ -138,6 +165,24 @@ class MiningStreamObserver:
         pending = self._pending.get(tool_call_id)
         if pending is not None and delta:
             pending.arguments += delta
+
+    def on_tool_call_ready(self, tool_call_id: str) -> None:
+        """工具参数流式接收完毕、即将执行时落盘 assistant tool_call。"""
+        if self.emit is None or tool_call_id in self._logged_tool_calls:
+            return
+        pending = self._pending.get(tool_call_id)
+        if pending is None:
+            return
+        self._logged_tool_calls.add(tool_call_id)
+        self.emit(
+            "assistant_tool_call",
+            {
+                "turn": self.turn,
+                "tool_call_id": tool_call_id,
+                "name": pending.name,
+                "arguments_raw": pending.arguments,
+            },
+        )
 
     def on_tool_result_delta(self, tool_call_id: str, delta: str) -> None:
         pending = self._pending.get(tool_call_id)
@@ -211,6 +256,8 @@ async def stream_to_cli(
         async for event in agent.reply_stream(pending):
             match event.type:
                 case EventType.THINKING_BLOCK_START:
+                    if observer is not None:
+                        observer.on_thinking_start()
                     if show_thinking and not quiet:
                         print(file=out, flush=True)
                         if logger:
@@ -218,6 +265,8 @@ async def stream_to_cli(
                         _tag("思考", color="1;35", logger=logger, stream=out)
                         body_needs_indent = True
                 case EventType.THINKING_BLOCK_DELTA:
+                    if observer is not None:
+                        observer.on_thinking_delta(event.delta)
                     if show_thinking and not quiet:
                         body_needs_indent = _print_body_delta(
                             event.delta,
@@ -226,17 +275,23 @@ async def stream_to_cli(
                             stream=out,
                         )
                 case EventType.THINKING_BLOCK_END:
+                    if observer is not None:
+                        observer.on_thinking_end()
                     if show_thinking and not quiet:
                         print(file=out, flush=True)
                         if logger:
                             logger.write_line()
                     body_needs_indent = False
                 case EventType.TEXT_BLOCK_DELTA:
+                    if observer is not None:
+                        observer.on_text_delta(event.delta)
                     if not quiet:
                         if logger and event.delta:
                             logger.write_plain(event.delta)
                         print(event.delta, end="", file=out, flush=True)
                 case EventType.TEXT_BLOCK_END:
+                    if observer is not None:
+                        observer.on_text_end()
                     if not quiet:
                         print(file=out, flush=True)
                         if logger:
@@ -255,6 +310,8 @@ async def stream_to_cli(
                     if observer is not None:
                         observer.on_tool_call_delta(event.tool_call_id, event.delta)
                 case EventType.TOOL_RESULT_START:
+                    if observer is not None:
+                        observer.on_tool_call_ready(event.tool_call_id)
                     if not quiet and not use_printer:
                         _tag("结果", detail=event.tool_call_name, color="1;33", logger=logger, stream=out)
                     body_needs_indent = True
