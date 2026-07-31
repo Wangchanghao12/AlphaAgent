@@ -4,7 +4,10 @@
 未归类样本为 NaN。DSL 里可直接用 ``$industry_sw_l1`` 做行业中性：
 ``CS_NEUTRALIZE(factor, $industry_sw_l1)``（行业码是离散组号，勿再套 CS_BUCKET）。
 
-数据源 Tushare：``index_classify``(行业目录) + ``index_member``(个股成员，含 in/out 日期)。
+数据源 Tushare：
+- ``index_classify``（行业目录）
+- 成员优先 ``index_member``；若为空（常见于低积分 / 部分代理）回退 ``index_member_all(l1_code=...)``
+
 PIT：按 in_date/out_date 用 merge_asof(backward) 把每个交易日映射到当日有效行业，无前视。
 """
 
@@ -24,6 +27,77 @@ SW_SRC = "SW2021"
 SW_LEVEL = "L1"
 
 _MEMBERSHIP_COLUMNS = ["instrument", "industry_code", "industry_name", "in_date", "out_date"]
+
+
+def _normalize_l1_codes(index_code: str) -> list[str]:
+    """生成 index_member / index_member_all 可能接受的 l1 代码形式。"""
+    code = str(index_code).strip()
+    out = [code]
+    if code.endswith(".SI"):
+        out.append(code[: -len(".SI")])
+    elif code.isdigit():
+        out.append(f"{code}.SI")
+    # 去重且保序
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for c in out:
+        if c not in seen:
+            seen.add(c)
+            uniq.append(c)
+    return uniq
+
+
+def _members_from_index_member(pro, index_code: str) -> pd.DataFrame:
+    mem = call_with_retry(
+        pro.index_member,
+        index_code=index_code,
+        is_new="",
+        label=f"index_member_{index_code}",
+    )
+    if mem is None or mem.empty:
+        return pd.DataFrame()
+    if "con_code" not in mem.columns:
+        return pd.DataFrame()
+    m = mem.copy()
+    m["instrument"] = m["con_code"].astype(str)
+    return m
+
+
+def _members_from_index_member_all(pro, index_code: str) -> pd.DataFrame:
+    """回退：申万成分用 index_member_all(l1_code=...)。is_new=Y 表示 SW2021 口径。"""
+    if not hasattr(pro, "index_member_all"):
+        return pd.DataFrame()
+
+    for code in _normalize_l1_codes(index_code):
+        for is_new in ("Y", ""):
+            kwargs: dict = {"l1_code": code}
+            if is_new:
+                kwargs["is_new"] = is_new
+            try:
+                mem = call_with_retry(
+                    pro.index_member_all,
+                    label=f"index_member_all_{code}_{is_new or 'all'}",
+                    **kwargs,
+                )
+            except Exception:
+                continue
+            if mem is None or mem.empty:
+                continue
+            m = mem.copy()
+            if "ts_code" in m.columns:
+                m["instrument"] = m["ts_code"].astype(str)
+            elif "con_code" in m.columns:
+                m["instrument"] = m["con_code"].astype(str)
+            else:
+                continue
+            # 部分代理忽略 l1_code，返回杂糅页：只保留本一级行业
+            if "l1_code" in m.columns:
+                allowed = set(_normalize_l1_codes(index_code))
+                l1 = m["l1_code"].astype(str)
+                m = m[l1.isin(allowed) | l1.str.replace(r"\.SI$", "", regex=True).isin(allowed)]
+            if not m.empty:
+                return m
+    return pd.DataFrame()
 
 
 def fetch_sw_l1_membership(
@@ -56,20 +130,24 @@ def fetch_sw_l1_membership(
 
     rows: list[pd.DataFrame] = []
     n = len(classify)
+    source_used = {"index_member": 0, "index_member_all": 0}
     for i, idx_code in enumerate(classify["index_code"]):
         if verbose and (i == 0 or (i + 1) % 10 == 0 or i + 1 == n):
-            print(f"  index_member [{i + 1}/{n}] {idx_code} {name_map[idx_code]}")
-        mem = call_with_retry(
-            pro.index_member,
-            index_code=idx_code,
-            is_new="",
-            label=f"index_member_{idx_code}",
-        )
+            print(f"  industry member [{i + 1}/{n}] {idx_code} {name_map[idx_code]}")
+
+        mem = _members_from_index_member(pro, idx_code)
+        src = "index_member"
+        if mem.empty:
+            mem = _members_from_index_member_all(pro, idx_code)
+            src = "index_member_all"
         time.sleep(sleep_sec)
-        if mem is None or mem.empty:
+        if mem.empty:
+            if verbose:
+                print(f"    WARN: {idx_code} 成员为空（index_member / index_member_all）")
             continue
+
+        source_used[src] += 1
         m = mem.copy()
-        m["instrument"] = m["con_code"]
         m["industry_code"] = code_map[idx_code]
         m["industry_name"] = name_map[idx_code]
         m["in_date"] = pd.to_datetime(m["in_date"], errors="coerce")
@@ -77,7 +155,16 @@ def fetch_sw_l1_membership(
         rows.append(m[_MEMBERSHIP_COLUMNS])
 
     if not rows:
-        raise RuntimeError("index_member 全部为空：无法构建行业映射")
+        raise RuntimeError(
+            "行业成员全部为空：index_member 与 index_member_all 均无数据。"
+            "请检查 Tushare/代理对申万成分接口的权限（index_member_all 通常需约 2000 积分）"
+        )
+
+    if verbose:
+        print(
+            f"  industry source: index_member={source_used['index_member']} "
+            f"index_member_all={source_used['index_member_all']}"
+        )
 
     out = pd.concat(rows, ignore_index=True)
     out = out.dropna(subset=["instrument", "in_date"])
