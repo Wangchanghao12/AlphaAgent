@@ -466,17 +466,28 @@ def _list_hq_part_files(parts_dir: Path) -> list[Path]:
     return sorted(parts_dir.glob("part_*.parquet"))
 
 
+def _trade_dates_from_parquet_fast(path: Path) -> set[str]:
+    """尽量只读索引收集交易日，避免整表进内存。"""
+    try:
+        df = pd.read_parquet(path, columns=[])
+    except Exception:
+        df = pd.read_parquet(path)
+    if "instrument" not in df.index.names and "code" in df.index.names:
+        df = df.rename_axis(index={"code": "instrument"})
+    if isinstance(df.index, pd.MultiIndex) and "datetime" in (df.index.names or []):
+        return _existing_trade_dates_yyyymmdd(df)
+    # 兼容 datetime 在列上的异常文件
+    full = load_market_hq(path)
+    return _existing_trade_dates_yyyymmdd(full)
+
+
 def _collect_cached_trade_dates(out_path: Path) -> set[str]:
     """从主文件 + 分片收集已有交易日（只为 skip，不长期驻留全表）。"""
     have: set[str] = set()
     if out_path.is_file():
-        hq = load_market_hq(out_path)
-        have |= _existing_trade_dates_yyyymmdd(hq)
-        del hq
+        have |= _trade_dates_from_parquet_fast(out_path)
     for part in _list_hq_part_files(hq_parts_dir(out_path)):
-        part_hq = load_market_hq(part)
-        have |= _existing_trade_dates_yyyymmdd(part_hq)
-        del part_hq
+        have |= _trade_dates_from_parquet_fast(part)
     return have
 
 
@@ -485,7 +496,10 @@ def compact_market_hq(
     *,
     verbose: bool = True,
 ) -> pd.DataFrame:
-    """把主文件 + daily_hq_parts 分片合并为单一 daily_hq.parquet，并清理分片。"""
+    """把主文件 + daily_hq_parts 分片合并为单一 daily_hq.parquet，并清理分片。
+
+    使用一次性 concat（避免逐片 merge 的 O(n^2) 拷贝）。
+    """
     cache_path = Path(out_path)
     parts_dir = hq_parts_dir(cache_path)
     part_files = _list_hq_part_files(parts_dir)
@@ -493,22 +507,33 @@ def compact_market_hq(
     if verbose:
         print(
             f"  compact: main={'yes' if cache_path.is_file() else 'no'} "
-            f"parts={len(part_files)} → {cache_path}"
+            f"parts={len(part_files)} → {cache_path}",
+            flush=True,
         )
 
     chunks: list[pd.DataFrame] = []
     if cache_path.is_file():
+        if verbose:
+            print("  compact: loading main ...", flush=True)
         chunks.append(load_market_hq(cache_path))
-    for part in part_files:
+    for i, part in enumerate(part_files, start=1):
+        if verbose and (i == 1 or i == len(part_files) or i % 20 == 0):
+            print(f"  compact: loading parts [{i}/{len(part_files)}] {part.name}", flush=True)
         chunks.append(load_market_hq(part))
 
     if not chunks:
         return pd.DataFrame()
 
-    merged = chunks[0]
-    for chunk in chunks[1:]:
-        merged = merge_market_hq(merged, chunk)
-    save_market_hq(merged, cache_path)
+    if verbose:
+        print(f"  compact: concat {len(chunks)} frames ...", flush=True)
+    merged = pd.concat(chunks)
+    merged = merged[~merged.index.duplicated(keep="last")].sort_index()
+
+    tmp_path = cache_path.with_suffix(".parquet.tmp")
+    if verbose:
+        print(f"  compact: writing {tmp_path.name} rows={len(merged)} ...", flush=True)
+    save_market_hq(merged, tmp_path)
+    tmp_path.replace(cache_path)
 
     for part in part_files:
         try:
@@ -524,7 +549,8 @@ def compact_market_hq(
     if verbose:
         print(
             f"  compact done: shape={merged.shape} "
-            f"elapsed={_format_elapsed(time.perf_counter() - t0)}"
+            f"elapsed={_format_elapsed(time.perf_counter() - t0)}",
+            flush=True,
         )
     return merged
 
