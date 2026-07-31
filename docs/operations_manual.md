@@ -5,6 +5,102 @@
 
 ---
 
+## 全流程总览（Mermaid）
+
+数据与因子库是本地计算；**只有「因子挖掘」阶段会调 LLM**（经 OpenAI 兼容网关 / LiteLLM）。
+
+```mermaid
+flowchart TB
+  subgraph prep [0. 环境]
+    ENV[".env<br/>TUSHARE_TOKEN / OPENAI_* / MODEL"]
+    SYNC["uv sync<br/>uv sync --extra mining"]
+  end
+
+  subgraph data [1. 数据层 · 无 LLM]
+    FETCH["fetch_market.py<br/>→ artifacts/market/daily_hq.parquet"]
+    CHECK["check_market_hq.py<br/>校验 hq"]
+    FUND["fetch_fundamentals.py<br/>可选 · 需更高积分"]
+    BUILD["build_panel.py<br/>→ artifacts/panel/panel_1d.parquet<br/>含 adj_* / ret / label_*"]
+  end
+
+  subgraph zoo [2. 因子库 · 无 LLM]
+    EVAL["eval_factor.py<br/>手写/示例 DSL 调试"]
+    INIT["init_factorlib.py"]
+    INGEST["ingest_factors.py --expr-dir ...<br/>重建 memmap + 查重矩阵"]
+  end
+
+  subgraph mine [3. 因子挖掘 · 唯一用 LLM]
+    LLM["LiteLLM / OpenAI 兼容 API<br/>MODEL=deepseek-v4-flash 等"]
+    AGENT["factor_mining_agentscope.py<br/>或 factor_mining.py<br/>或 run_factor_mining.sh"]
+    TOOLS["本地工具 · 不调 LLM<br/>eval_on_train_set<br/>eval_on_val_set<br/>submit_factor"]
+  end
+
+  subgraph out [4. 产出]
+    REG["mining_delivered_registry.json"]
+    DSL["expressions/*.dsl"]
+    LOG["logs/factor_mining/"]
+  end
+
+  ENV --> SYNC
+  SYNC --> FETCH --> CHECK --> BUILD
+  FUND -.-> BUILD
+  BUILD --> EVAL
+  BUILD --> INIT --> INGEST
+  INGEST --> AGENT
+  BUILD --> AGENT
+  LLM --> AGENT
+  AGENT <--> TOOLS
+  TOOLS --> REG
+  TOOLS --> DSL
+  AGENT --> LOG
+```
+
+### LLM 用在哪里
+
+| 阶段 | 是否调 LLM | 说明 |
+|------|------------|------|
+| `fetch_market` / `build_panel` | 否 | 只拉数、建表 |
+| `eval_factor` / `init_factorlib` / `ingest` | 否 | 本地 DSL 求值与入库 |
+| **`factor_mining_*.py`** | **是** | 模型提出/改写因子表达式，并发起 tool_calls |
+| `eval_on_train_set` / `eval_on_val_set` | 否 | 工具在本地算 IC/ICIR/MLS |
+| `submit_factor` | 否 | 本地查重 + 写入 FactorZoo |
+
+挖掘会话内部循环：
+
+```mermaid
+sequenceDiagram
+  participant U as 用户 / CLI
+  participant A as Mining Agent
+  participant L as LLM<br/>LiteLLM / OpenAI 兼容
+  participant T as 本地工具<br/>StockEvalService / FactorZoo
+
+  U->>A: panel + system prompt + user message
+  loop 多轮 ReAct
+    A->>L: messages + tools schema
+    L-->>A: tool_calls（DSL 表达式）
+    A->>T: eval_on_train_set / eval_on_val_set
+    T-->>A: IC / ICIR / MLS 等指标
+    A->>L: tool 结果回灌
+    opt 达标
+      A->>T: submit_factor
+      T-->>A: 入库 / 查重结果
+    end
+  end
+  A-->>U: logs/factor_mining + registry / .dsl
+```
+
+入口对照：
+
+| 入口 | LLM 配置 | 备注 |
+|------|----------|------|
+| `scripts/run_factor_mining.sh` | 默认 `OPENAI_API_BASE=https://litellm.spaccez.com/v1` | 推荐 |
+| `scripts/factor_mining_agentscope.py` | `.env` 的 `OPENAI_API_KEY` / `BASE` / `MODEL` | 流式 |
+| `scripts/factor_mining.py` | 同上 | OpenAI SDK 直连 |
+
+你当前进度（已有约 1 个月 `daily_hq`）→ 接着：多年 `fetch_market` → `build_panel` → `init_factorlib` + `ingest` → mining。
+
+---
+
 ## 0. 环境准备
 
 ### 0.1 安装依赖
@@ -26,13 +122,14 @@ uv sync
 在项目根目录创建 `.env`：
 
 ```env
-# 拉 Panel 必填
+# 拉行情 / 基本面（仅 fetch_* / update_panel；已有 panel 或开源包可不填）
 TUSHARE_TOKEN=your_tushare_token
+TUSHARE_HTTP_URL=https://tushare.citydata.club
 
-# 因子挖掘必填（仅 mining 脚本）
+# 因子挖掘必填（仅 mining 脚本；可用 LiteLLM 网关）
 OPENAI_API_KEY=sk-...
-OPENAI_API_BASE=https://...   # 可选，兼容 OpenAI 协议的中转
-MODEL=gpt-5.5                  # 或 deepseek-chat 等
+OPENAI_API_BASE=https://litellm.spaccez.com/v1
+MODEL=deepseek-v4-flash
 MAX_PARALLEL_EVAL=4           # 可选，train/val 并行评估上限（默认 1；也可用 --max-parallel-eval 覆盖）
 ```
 

@@ -68,7 +68,7 @@ Set `TUSHARE_TOKEN` in `.env`, then run the fetch + build commands shown in
 
 | Doc | Topic |
 |-----|-------|
-| [docs/operations_manual.md](docs/operations_manual.md) | Full workflow (中文) |
+| [docs/operations_manual.md](docs/operations_manual.md) | Full workflow + Mermaid（中文；含 LLM 接入点） |
 | [docs/data_release.md](docs/data_release.md) | Open data package layout & restore |
 | [docs/panel_fundamental_fields.md](docs/panel_fundamental_fields.md) | Panel fundamental columns |
 | [docs/factor_metrics.md](docs/factor_metrics.md) | Factor evaluation metrics |

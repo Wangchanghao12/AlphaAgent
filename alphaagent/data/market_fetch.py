@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 import numpy as np
@@ -454,6 +454,81 @@ def fetch_hq_for_index(
     )
 
 
+def hq_parts_dir(out_path: Path | str) -> Path:
+    """分片目录：artifacts/market/daily_hq_parts/。"""
+    p = Path(out_path)
+    return p.parent / f"{p.stem}_parts"
+
+
+def _list_hq_part_files(parts_dir: Path) -> list[Path]:
+    if not parts_dir.is_dir():
+        return []
+    return sorted(parts_dir.glob("part_*.parquet"))
+
+
+def _collect_cached_trade_dates(out_path: Path) -> set[str]:
+    """从主文件 + 分片收集已有交易日（只为 skip，不长期驻留全表）。"""
+    have: set[str] = set()
+    if out_path.is_file():
+        hq = load_market_hq(out_path)
+        have |= _existing_trade_dates_yyyymmdd(hq)
+        del hq
+    for part in _list_hq_part_files(hq_parts_dir(out_path)):
+        part_hq = load_market_hq(part)
+        have |= _existing_trade_dates_yyyymmdd(part_hq)
+        del part_hq
+    return have
+
+
+def compact_market_hq(
+    out_path: Path | str = MARKET_HQ_PATH,
+    *,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """把主文件 + daily_hq_parts 分片合并为单一 daily_hq.parquet，并清理分片。"""
+    cache_path = Path(out_path)
+    parts_dir = hq_parts_dir(cache_path)
+    part_files = _list_hq_part_files(parts_dir)
+    t0 = time.perf_counter()
+    if verbose:
+        print(
+            f"  compact: main={'yes' if cache_path.is_file() else 'no'} "
+            f"parts={len(part_files)} → {cache_path}"
+        )
+
+    chunks: list[pd.DataFrame] = []
+    if cache_path.is_file():
+        chunks.append(load_market_hq(cache_path))
+    for part in part_files:
+        chunks.append(load_market_hq(part))
+
+    if not chunks:
+        return pd.DataFrame()
+
+    merged = chunks[0]
+    for chunk in chunks[1:]:
+        merged = merge_market_hq(merged, chunk)
+    save_market_hq(merged, cache_path)
+
+    for part in part_files:
+        try:
+            part.unlink()
+        except OSError:
+            pass
+    if parts_dir.is_dir() and not any(parts_dir.iterdir()):
+        try:
+            parts_dir.rmdir()
+        except OSError:
+            pass
+
+    if verbose:
+        print(
+            f"  compact done: shape={merged.shape} "
+            f"elapsed={_format_elapsed(time.perf_counter() - t0)}"
+        )
+    return merged
+
+
 def fetch_hq_from_tushare(
     start: str,
     end: str,
@@ -464,12 +539,14 @@ def fetch_hq_from_tushare(
     checkpoint_every: int = 5,
     workers: int = 1,
     skip_existing: bool = True,
+    compact_at_end: bool = True,
 ) -> pd.DataFrame:
     """从 Tushare 按交易日拉取全市场行情（原始 hq 格式）。
 
-    - out_path 非空时：按日 checkpoint 落盘，崩溃可续跑
-    - skip_existing：跳过 out_path 里已有交易日
+    - out_path 非空时：checkpoint **只写增量分片**（``daily_hq_parts/``），避免整表重写卡死
+    - skip_existing：跳过主文件 + 分片里已有交易日
     - workers>1：按日小并发（V1 建议 2~4，过大易限流）
+    - compact_at_end：结束后合并分片到 daily_hq.parquet
     """
     pro = get_pro()
     trade_dates = _fetch_trade_dates(pro, start, end)
@@ -477,24 +554,38 @@ def fetch_hq_from_tushare(
         raise ValueError(f"区间 {start} ~ {end} 无交易日")
 
     cache_path = Path(out_path) if out_path is not None else None
-    existing = load_market_hq(cache_path) if cache_path is not None else pd.DataFrame()
-    if skip_existing and not existing.empty:
-        have = _existing_trade_dates_yyyymmdd(existing)
+    have: set[str] = set()
+    mem_chunks: list[pd.DataFrame] = []  # 无 out_path 时的内存累加
+
+    if cache_path is not None and skip_existing:
+        if verbose:
+            print("  扫描已缓存交易日（main + parts）...")
+        t_scan = time.perf_counter()
+        have = _collect_cached_trade_dates(cache_path)
         before = len(trade_dates)
         trade_dates = [d for d in trade_dates if d not in have]
-        if verbose and before != len(trade_dates):
-            print(f"  跳过已缓存交易日 {before - len(trade_dates)} 天，待拉 {len(trade_dates)} 天")
+        if verbose:
+            print(
+                f"  已缓存 {len(have)} 天，跳过 {before - len(trade_dates)} 天，"
+                f"待拉 {len(trade_dates)} 天 "
+                f"(scan={_format_elapsed(time.perf_counter() - t_scan)})"
+            )
 
     if not trade_dates:
         if verbose:
             print("  区间内交易日均已在缓存中，无需重拉")
-        return existing.sort_index() if not existing.empty else pd.DataFrame()
+        if cache_path is not None:
+            if compact_at_end and _list_hq_part_files(hq_parts_dir(cache_path)):
+                return compact_market_hq(cache_path, verbose=verbose)
+            return load_market_hq(cache_path)
+        return pd.DataFrame()
 
     workers = max(1, int(workers))
     checkpoint_every = max(1, int(checkpoint_every))
     state_lock = threading.Lock()
     pending: list[pd.DataFrame] = []
     done = 0
+    part_seq = 0
     total = len(trade_dates)
     t0 = time.perf_counter()
 
@@ -510,32 +601,57 @@ def fetch_hq_from_tushare(
             f"avg={rate:.1f}s/day"
         )
 
-    def _flush_locked(*, force: bool = False) -> None:
-        nonlocal pending, existing
-        if not pending:
-            return
-        if not force and len(pending) < checkpoint_every:
-            return
-        batch = pd.concat(pending).sort_index()
-        pending = []
+    def _write_part(batch: pd.DataFrame) -> None:
+        nonlocal part_seq
         if cache_path is None:
-            # 无落盘路径时暂存在 existing 容器语义里（实际是内存累加）
-            existing = merge_market_hq(existing, batch)
+            mem_chunks.append(batch)
             return
-        existing = merge_market_hq(existing, batch)
-        save_market_hq(existing, cache_path)
+        parts_dir = hq_parts_dir(cache_path)
+        parts_dir.mkdir(parents=True, exist_ok=True)
+        part_seq += 1
+        dt = batch.index.get_level_values("datetime")
+        d0 = pd.Timestamp(dt.min()).strftime("%Y%m%d")
+        d1 = pd.Timestamp(dt.max()).strftime("%Y%m%d")
+        part_path = parts_dir / f"part_{part_seq:05d}_{d0}_{d1}.parquet"
+        t_save = time.perf_counter()
         if verbose:
-            print(f"  checkpoint → {cache_path} rows={len(existing)} {_progress_suffix()}")
+            print(
+                f"  checkpoint begin → {part_path.name} rows={len(batch)} "
+                f"{_progress_suffix()}",
+                flush=True,
+            )
+        save_market_hq(batch, part_path)
+        if verbose:
+            print(
+                f"  checkpoint done  → {part_path.name} "
+                f"save={_format_elapsed(time.perf_counter() - t_save)} "
+                f"{_progress_suffix()}",
+                flush=True,
+            )
+
+    def _flush(*, force: bool = False) -> None:
+        """取出 pending 后释放逻辑锁再写盘，避免整表重写堵死 worker 回收。"""
+        nonlocal pending
+        with state_lock:
+            if not pending:
+                return
+            if not force and len(pending) < checkpoint_every:
+                return
+            batch = pd.concat(pending).sort_index()
+            pending = []
+        _write_part(batch)
 
     def _consume(td: str, day_df: pd.DataFrame) -> None:
         nonlocal done
         with state_lock:
             done += 1
             if verbose:
-                print(f"  [{done}/{total}] {td} {_progress_suffix()}")
+                print(f"  [{done}/{total}] {td} {_progress_suffix()}", flush=True)
             if day_df is not None and not day_df.empty:
                 pending.append(day_df)
-            _flush_locked(force=False)
+            need_flush = len(pending) >= checkpoint_every
+        if need_flush:
+            _flush(force=False)
 
     def _pull(td: str, *, local_pro=None) -> tuple[str, pd.DataFrame]:
         # 并发时每任务独立 pro，避免多线程共享同一 client
@@ -550,19 +666,34 @@ def fetch_hq_from_tushare(
             _, day_df = _pull(td, local_pro=pro)
             _consume(td, day_df)
     else:
+        # 控制在途任务数 = workers，避免一次 submit 两千个 future
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(_pull, td) for td in trade_dates]
-            for fut in as_completed(futures):
-                td, day_df = fut.result()
-                _consume(td, day_df)
+            inflight: set = set()
+            idx = 0
+            n_dates = len(trade_dates)
+            while idx < n_dates or inflight:
+                while idx < n_dates and len(inflight) < workers:
+                    inflight.add(pool.submit(_pull, trade_dates[idx]))
+                    idx += 1
+                finished, inflight = wait(inflight, return_when=FIRST_COMPLETED)
+                for fut in finished:
+                    td, day_df = fut.result()
+                    _consume(td, day_df)
 
-    with state_lock:
-        _flush_locked(force=True)
+    _flush(force=True)
 
     if cache_path is not None:
-        out = load_market_hq(cache_path)
+        if compact_at_end:
+            out = compact_market_hq(cache_path, verbose=verbose)
+        else:
+            # 不合并时仍返回主文件+分片的合并视图（仅内存，不写回）
+            out = load_market_hq(cache_path)
+            for part in _list_hq_part_files(hq_parts_dir(cache_path)):
+                out = merge_market_hq(out, load_market_hq(part))
     else:
-        out = existing
+        out = pd.concat(mem_chunks).sort_index() if mem_chunks else pd.DataFrame()
+        if not out.empty:
+            out = out[~out.index.duplicated(keep="last")].sort_index()
 
     if out is None or out.empty:
         raise ValueError("未拉取到任何行情数据")
