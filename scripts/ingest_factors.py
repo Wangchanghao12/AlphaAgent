@@ -158,6 +158,11 @@ def main() -> None:
         default=None,
         help="入库前全局分位 clip，如 --clip 1 99",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="单个因子失败时立即退出（默认跳过并继续）",
+    )
     args = parser.parse_args()
 
     zoo = FactorZoo.open(args.lib)
@@ -188,30 +193,58 @@ def main() -> None:
         similar_top_k=args.similar_top_k,
         clip_pct=clip_pct,
     )
+    panel_cols = set(map(str, panel.columns))
     t0 = time.perf_counter()
     results = []
+    failed: list[tuple[str, str]] = []
     for fid, name, expr in entries:
-        results.append(
-            ingest_factor(
-                zoo,
-                factor_id=fid,
-                name=name,
-                expr=expr,
-                panel=panel,
-                policy=policy,
-                overwrite=args.overwrite,
-                dry_run=args.dry_run,
-            )
+        # 缺列时给出可读提示（常见于未 --with-fundamentals/--with-industry 的 panel）
+        missing_refs = sorted(
+            {
+                m.group(1)
+                for m in re.finditer(r"\$([A-Za-z_][A-Za-z0-9_]*)", expr)
+                if m.group(1) not in panel_cols
+            }
         )
+        if missing_refs:
+            msg = f"panel 缺少列: {missing_refs}"
+            print(f"\n跳过 {fid}: {msg}")
+            failed.append((fid, msg))
+            continue
+        try:
+            results.append(
+                ingest_factor(
+                    zoo,
+                    factor_id=fid,
+                    name=name,
+                    expr=expr,
+                    panel=panel,
+                    policy=policy,
+                    overwrite=args.overwrite,
+                    dry_run=args.dry_run,
+                )
+            )
+        except Exception as exc:
+            print(f"\n跳过 {fid}: {exc}")
+            failed.append((fid, str(exc)))
+            if args.strict:
+                raise
 
     elapsed = time.perf_counter() - t0
     stored = sum(1 for r in results if r.stored)
     skipped = len(results) - stored
     if args.dry_run:
         print("模式: dry-run（不写入 factorzoo）")
-    print(f"完成: stored={stored} skipped={skipped} elapsed={elapsed:.1f}s")
+    print(
+        f"完成: stored={stored} skipped={skipped} failed={len(failed)} "
+        f"elapsed={elapsed:.1f}s"
+    )
     for r in results:
         _print_ingest_result(r, json_out=args.json)
+    if failed:
+        print("\n失败/跳过因子（常见原因：panel 无 funda_*/industry 列）:")
+        for fid, err in failed:
+            print(f"  - {fid}: {err}")
 
 
 if __name__ == "__main__":

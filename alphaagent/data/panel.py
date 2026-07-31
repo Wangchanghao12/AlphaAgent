@@ -304,6 +304,11 @@ def build_panel(
     if market_path is None:
         market_path = MARKET_HQ_PATH
 
+    import time
+
+    t0 = time.perf_counter()
+    if verbose:
+        print(f"build_panel(offline): loading hq from {market_path} ...", flush=True)
     hq = load_market_hq(market_path)
     if hq.empty:
         raise FileNotFoundError(
@@ -311,9 +316,30 @@ def build_panel(
             "scripts/fetch_market.py 拉取行情"
         )
     if verbose:
-        print(f"build_panel(offline): hq={hq.shape} from {market_path}")
+        print(
+            f"build_panel(offline): hq={hq.shape} loaded in "
+            f"{time.perf_counter() - t0:.1f}s",
+            flush=True,
+        )
 
+    t1 = time.perf_counter()
+    if verbose:
+        print("build_panel: deriving adj_*/ret/label ...", flush=True)
     panel = build_panel_from_hq(hq, start=start, end=end, universe_mask=universe_mask)
+    if verbose:
+        print(
+            f"build_panel: derived shape={panel.shape} in {time.perf_counter() - t1:.1f}s",
+            flush=True,
+        )
+
+    if with_fundamentals or with_industry:
+        t2 = time.perf_counter()
+        if verbose:
+            print(
+                f"build_panel: enrich fundamentals={with_fundamentals} "
+                f"industry={with_industry} ...",
+                flush=True,
+            )
     panel = _enrich_panel(
         panel,
         with_fundamentals=with_fundamentals,
@@ -325,12 +351,22 @@ def build_panel(
         refresh_industry=refresh_industry,
         verbose=verbose,
     )
+    if (with_fundamentals or with_industry) and verbose:
+        print(f"build_panel: enrich done in {time.perf_counter() - t2:.1f}s", flush=True)
 
     if out_path is not None:
+        t3 = time.perf_counter()
+        if verbose:
+            print(f"build_panel: writing {out_path} ...", flush=True)
         save_panel(panel, out_path)
         if verbose:
             n_inst = panel.index.get_level_values("instrument").nunique()
-            print(f"已保存: {out_path} shape={panel.shape} 股票数={n_inst}")
+            print(
+                f"已保存: {out_path} shape={panel.shape} 股票数={n_inst} "
+                f"write={time.perf_counter() - t3:.1f}s "
+                f"total={time.perf_counter() - t0:.1f}s",
+                flush=True,
+            )
 
     return panel
 
