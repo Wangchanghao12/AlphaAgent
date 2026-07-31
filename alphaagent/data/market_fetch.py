@@ -53,6 +53,20 @@ HQ_COLUMNS = [
 ]
 
 
+def _format_elapsed(seconds: float) -> str:
+    """把秒格式化为 1h02m03s / 12m03s / 3.2s。"""
+    if seconds < 0:
+        seconds = 0.0
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    total = int(seconds)
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}h{m:02d}m{s:02d}s"
+    return f"{m}m{s:02d}s"
+
+
 def _format_yyyymmdd(d: str) -> str:
     return d.replace("-", "")
 
@@ -482,6 +496,19 @@ def fetch_hq_from_tushare(
     pending: list[pd.DataFrame] = []
     done = 0
     total = len(trade_dates)
+    t0 = time.perf_counter()
+
+    def _progress_suffix() -> str:
+        elapsed = time.perf_counter() - t0
+        if done <= 0:
+            return f"elapsed={_format_elapsed(elapsed)}"
+        rate = elapsed / done
+        eta = rate * (total - done)
+        return (
+            f"elapsed={_format_elapsed(elapsed)} "
+            f"eta={_format_elapsed(eta)} "
+            f"avg={rate:.1f}s/day"
+        )
 
     def _flush_locked(*, force: bool = False) -> None:
         nonlocal pending, existing
@@ -498,14 +525,14 @@ def fetch_hq_from_tushare(
         existing = merge_market_hq(existing, batch)
         save_market_hq(existing, cache_path)
         if verbose:
-            print(f"  checkpoint → {cache_path} rows={len(existing)}")
+            print(f"  checkpoint → {cache_path} rows={len(existing)} {_progress_suffix()}")
 
     def _consume(td: str, day_df: pd.DataFrame) -> None:
         nonlocal done
         with state_lock:
             done += 1
             if verbose:
-                print(f"  [{done}/{total}] {td}")
+                print(f"  [{done}/{total}] {td} {_progress_suffix()}")
             if day_df is not None and not day_df.empty:
                 pending.append(day_df)
             _flush_locked(force=False)
@@ -539,6 +566,12 @@ def fetch_hq_from_tushare(
 
     if out is None or out.empty:
         raise ValueError("未拉取到任何行情数据")
+    if verbose:
+        elapsed = time.perf_counter() - t0
+        print(
+            f"  按日拉取完成: {total} 天, elapsed={_format_elapsed(elapsed)}"
+            + (f", avg={elapsed / total:.1f}s/day" if total else "")
+        )
     return out.sort_index()
 
 
@@ -601,6 +634,7 @@ def fetch_and_save_market(
 
     全市场按日模式会边拉边 checkpoint，中断后重跑自动跳过已有日期。
     """
+    t0 = time.perf_counter()
     if verbose:
         mode = f"指数池 {universe}" if universe else "全市场按日"
         print(f"fetch_market: {start} ~ {end} ({mode})")
@@ -633,7 +667,10 @@ def fetch_and_save_market(
 
     if verbose:
         n_inst = merged.index.get_level_values("instrument").nunique()
-        print(f"已保存 hq 缓存: {out_path} shape={merged.shape} 股票数={n_inst}")
+        print(
+            f"已保存 hq 缓存: {out_path} shape={merged.shape} 股票数={n_inst} "
+            f"elapsed={_format_elapsed(time.perf_counter() - t0)}"
+        )
     return merged
 
 
