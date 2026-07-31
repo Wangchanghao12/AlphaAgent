@@ -156,15 +156,22 @@ def main() -> None:
     t0 = time.perf_counter()
     try:
         if args.enrich_only:
+            if not args.with_fundamentals and not args.with_industry:
+                raise SystemExit(
+                    "--enrich-only 须至少指定 --with-fundamentals 或 --with-industry"
+                )
             print(f"enrich-only: loading {args.out} ...", flush=True)
             panel = load_panel(args.out)
-            panel = enrich_panel_fundamentals(
-                panel,
-                quarterly_path=args.quarterly,
-                disclosure_path=args.disclosure,
-                include_disclosure_features=not args.no_disclosure_distance,
-            )
+            if args.with_fundamentals:
+                print("enrich-only: fundamentals ...", flush=True)
+                panel = enrich_panel_fundamentals(
+                    panel,
+                    quarterly_path=args.quarterly,
+                    disclosure_path=args.disclosure,
+                    include_disclosure_features=not args.no_disclosure_distance,
+                )
             if args.with_industry:
+                print("enrich-only: industry ...", flush=True)
                 panel = enrich_panel_industry(
                     panel,
                     membership_path=args.industry_path,
