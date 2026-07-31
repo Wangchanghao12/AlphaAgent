@@ -23,6 +23,8 @@ ENV_FILE = ROOT / ".env"
 
 T = TypeVar("T")
 
+DEFAULT_HTTP_URL = "https://api.tushare.pro"
+
 RETRYABLE_NETWORK_ERRORS = (
     requests.exceptions.ConnectionError,
     requests.exceptions.Timeout,
@@ -73,6 +75,13 @@ def _read_token() -> str:
     load_dotenv(ENV_FILE)
     token = os.getenv("TUSHARE_TOKEN", "")
     return token.strip().strip('"').strip("'")
+
+
+def _read_http_url() -> str:
+    """读取兼容 Tushare DataApi 的网关地址。"""
+    load_dotenv(ENV_FILE)
+    url = os.getenv("TUSHARE_HTTP_URL", DEFAULT_HTTP_URL)
+    return url.strip().strip('"').strip("'").rstrip("/")
 
 
 def _is_retryable(exc: Exception) -> bool:
@@ -146,7 +155,9 @@ def get_pro():
             "格式: TUSHARE_TOKEN=your_token"
         )
     timeout = int(_config["timeout"])
-    pro = ts.pro_api(token, timeout=timeout)
+    ts.set_token(token)
+    pro = ts.pro_api(timeout=timeout)
+    pro._DataApi__http_url = _read_http_url()
     max_retries = int(_config["max_retries"])
     if max_retries <= 0:
         return pro

@@ -14,6 +14,38 @@ def test_token_from_env(monkeypatch):
     assert tushare_client._read_token() == "test_token_abc"
 
 
+def test_http_url_from_env(monkeypatch):
+    monkeypatch.setenv("TUSHARE_HTTP_URL", "https://tushare.example.com/")
+    from alphaagent.data import tushare_client
+
+    assert tushare_client._read_http_url() == "https://tushare.example.com"
+
+
+def test_get_pro_sets_token_and_http_url(monkeypatch):
+    from alphaagent.data import tushare_client
+
+    class FakePro:
+        pass
+
+    fake_pro = FakePro()
+    seen: dict[str, object] = {}
+    monkeypatch.setattr(tushare_client, "_read_token", lambda: "temporary-token")
+    monkeypatch.setattr(tushare_client, "_read_http_url", lambda: "https://gateway.example.com")
+    monkeypatch.setattr(tushare_client.ts, "set_token", lambda token: seen.update(token=token))
+    monkeypatch.setattr(
+        tushare_client.ts,
+        "pro_api",
+        lambda **kwargs: (seen.update(kwargs=kwargs) or fake_pro),
+    )
+    tushare_client.configure(max_retries=0, timeout=45)
+
+    result = tushare_client.get_pro()
+
+    assert result is fake_pro
+    assert seen == {"token": "temporary-token", "kwargs": {"timeout": 45}}
+    assert fake_pro._DataApi__http_url == "https://gateway.example.com"
+
+
 def test_token_missing_raises(monkeypatch):
     monkeypatch.delenv("TUSHARE_TOKEN", raising=False)
     from alphaagent.data.tushare_client import _read_token, get_pro
