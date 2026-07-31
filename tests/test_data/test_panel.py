@@ -295,6 +295,45 @@ def test_merge_raw_daily_sets_float_cap_from_circ_mv():
     assert out.loc[(pd.Timestamp("2024-01-02"), "000001.SZ"), "float_cap"] == 123.45 * 10000
 
 
+def test_merge_raw_daily_ignores_basic_close_collision():
+    """代理若忽略 fields 并返回 daily_basic.close，不得冲掉 daily.close。"""
+    daily = pd.DataFrame(
+        {
+            "ts_code": ["000001.SZ"],
+            "trade_date": ["20180726"],
+            "open": [10.0],
+            "high": [11.0],
+            "low": [9.0],
+            "close": [10.5],
+            "vol": [1000.0],
+            "amount": [10500.0],
+        }
+    )
+    adj = pd.DataFrame(
+        {"ts_code": ["000001.SZ"], "trade_date": ["20180726"], "adj_factor": [1.2]}
+    )
+    basic = pd.DataFrame(
+        {
+            "ts_code": ["000001.SZ"],
+            "trade_date": ["20180726"],
+            "close": [999.0],  # 冲突列
+            "vol": [1.0],
+            "circ_mv": [50.0],
+            "total_mv": [80.0],
+            "pe_ttm": [12.3],
+            "pb": [1.1],
+        }
+    )
+    st_table = pd.DataFrame(columns=["ts_code", "trade_date", "is_st"])
+    out = _merge_raw_daily(daily, adj, basic, st_table)
+    row = out.loc[(pd.Timestamp("2018-07-26"), "000001.SZ")]
+    assert row["close"] == 10.5
+    assert row["volume"] == 1000.0
+    assert row["float_cap"] == 50.0 * 10000
+    assert row["pe_ttm"] == 12.3
+    assert row["pb"] == 1.1
+
+
 
 
 

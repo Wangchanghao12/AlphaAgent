@@ -11,7 +11,9 @@ daily_basic 每日指标（turnover_rate/pe_ttm/pb/ps_ttm/dv_ttm/total_share/...
 
 from __future__ import annotations
 
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +31,9 @@ from alphaagent.data.universe import (
 
 # daily_basic 请求字段（circ_mv/total_mv → float_cap/tot_cap；其余原样入库）
 DAILY_BASIC_FIELDS = ",".join(["ts_code", "trade_date", "circ_mv", "total_mv", *DAILY_BASIC_COLUMNS])
+
+# merge 时只保留这些列，避免代理忽略 fields 时带回 close/vol 等与 daily 撞名
+_BASIC_MERGE_COLUMNS = ("ts_code", "trade_date", "circ_mv", "total_mv", *DAILY_BASIC_COLUMNS)
 
 # hq 缓存列顺序（含 is_st，供 build 侧 filter_universe 使用）
 HQ_COLUMNS = [
@@ -180,6 +185,19 @@ def _expand_update_dates(pro, dates: list[str]) -> tuple[list[str], str | None]:
 # ---------------------------------------------------------------------------
 # 原始行情拉取
 # ---------------------------------------------------------------------------
+def _prepare_basic_for_merge(basic: pd.DataFrame) -> pd.DataFrame:
+    """裁剪 daily_basic 列，防止与 daily 的 close/vol 等字段冲突成 close_x。"""
+    if basic is None or basic.empty:
+        return pd.DataFrame(columns=list(_BASIC_MERGE_COLUMNS))
+    cols = [c for c in _BASIC_MERGE_COLUMNS if c in basic.columns]
+    out = basic.loc[:, cols].copy()
+    if "trade_date" in out.columns:
+        out["trade_date"] = out["trade_date"].astype(str)
+    if "ts_code" in out.columns:
+        out["ts_code"] = out["ts_code"].astype(str)
+    return out
+
+
 def _merge_raw_daily(
     daily: pd.DataFrame,
     adj: pd.DataFrame,
@@ -197,20 +215,30 @@ def _merge_raw_daily(
         return pd.DataFrame()
 
     df = daily.copy()
+    if "trade_date" in df.columns:
+        df["trade_date"] = df["trade_date"].astype(str)
+    if "ts_code" in df.columns:
+        df["ts_code"] = df["ts_code"].astype(str)
+
     if adj is not None and not adj.empty:
-        df = df.merge(
-            adj[["ts_code", "trade_date", "adj_factor"]],
-            on=["ts_code", "trade_date"],
-            how="left",
-        )
+        adj_use = adj[["ts_code", "trade_date", "adj_factor"]].copy()
+        adj_use["trade_date"] = adj_use["trade_date"].astype(str)
+        adj_use["ts_code"] = adj_use["ts_code"].astype(str)
+        df = df.merge(adj_use, on=["ts_code", "trade_date"], how="left")
     else:
         df["adj_factor"] = 1.0
 
-    if basic is not None and not basic.empty:
-        df = df.merge(basic, on=["ts_code", "trade_date"], how="left")
+    basic_use = _prepare_basic_for_merge(basic)
+    if not basic_use.empty:
+        df = df.merge(basic_use, on=["ts_code", "trade_date"], how="left")
     else:
         df["circ_mv"] = 0.0
         df["total_mv"] = 0.0
+
+    # 防御：若仍出现 pandas merge 后缀，优先保留 daily 侧
+    for col in ("open", "high", "low", "close", "vol", "amount"):
+        if col not in df.columns and f"{col}_x" in df.columns:
+            df[col] = df[f"{col}_x"]
 
     df = apply_is_st(df, st_table)
 
@@ -228,6 +256,13 @@ def _merge_raw_daily(
     df["datetime"] = pd.to_datetime(df["trade_date"])
     df["instrument"] = df["ts_code"]
 
+    missing = [c for c in ("datetime", "instrument", *HQ_COLUMNS) if c not in df.columns]
+    if missing:
+        raise KeyError(
+            f"合并行情缺少列 {missing}；daily列={list(daily.columns)} "
+            f"basic列={list(basic.columns) if basic is not None else []}"
+        )
+
     cols = ["datetime", "instrument", *HQ_COLUMNS]
     return df[cols].set_index(["datetime", "instrument"])
 
@@ -243,6 +278,13 @@ def _fetch_one_day(pro, trade_date: str) -> pd.DataFrame:
     st_table = fetch_st_table(pro, trade_date=trade_date)
 
     return _merge_raw_daily(daily, adj, basic, st_table)
+
+
+def _existing_trade_dates_yyyymmdd(hq: pd.DataFrame) -> set[str]:
+    if hq is None or hq.empty:
+        return set()
+    dt = hq.index.get_level_values("datetime")
+    return {pd.Timestamp(x).strftime("%Y%m%d") for x in dt.unique()}
 
 
 def _year_chunks(start: str, end: str) -> list[tuple[str, str]]:
@@ -404,27 +446,100 @@ def fetch_hq_from_tushare(
     *,
     sleep_sec: float = 0.35,
     verbose: bool = True,
+    out_path: Path | str | None = None,
+    checkpoint_every: int = 5,
+    workers: int = 1,
+    skip_existing: bool = True,
 ) -> pd.DataFrame:
-    """从 Tushare 按交易日拉取全市场行情（原始 hq 格式）。"""
+    """从 Tushare 按交易日拉取全市场行情（原始 hq 格式）。
+
+    - out_path 非空时：按日 checkpoint 落盘，崩溃可续跑
+    - skip_existing：跳过 out_path 里已有交易日
+    - workers>1：按日小并发（V1 建议 2~4，过大易限流）
+    """
     pro = get_pro()
     trade_dates = _fetch_trade_dates(pro, start, end)
     if not trade_dates:
         raise ValueError(f"区间 {start} ~ {end} 无交易日")
 
-    chunks: list[pd.DataFrame] = []
-    for i, td in enumerate(trade_dates):
+    cache_path = Path(out_path) if out_path is not None else None
+    existing = load_market_hq(cache_path) if cache_path is not None else pd.DataFrame()
+    if skip_existing and not existing.empty:
+        have = _existing_trade_dates_yyyymmdd(existing)
+        before = len(trade_dates)
+        trade_dates = [d for d in trade_dates if d not in have]
+        if verbose and before != len(trade_dates):
+            print(f"  跳过已缓存交易日 {before - len(trade_dates)} 天，待拉 {len(trade_dates)} 天")
+
+    if not trade_dates:
         if verbose:
-            print(f"  [{i + 1}/{len(trade_dates)}] {td}")
-        day_df = _fetch_one_day(pro, td)
-        if not day_df.empty:
-            chunks.append(day_df)
+            print("  区间内交易日均已在缓存中，无需重拉")
+        return existing.sort_index() if not existing.empty else pd.DataFrame()
+
+    workers = max(1, int(workers))
+    checkpoint_every = max(1, int(checkpoint_every))
+    state_lock = threading.Lock()
+    pending: list[pd.DataFrame] = []
+    done = 0
+    total = len(trade_dates)
+
+    def _flush_locked(*, force: bool = False) -> None:
+        nonlocal pending, existing
+        if not pending:
+            return
+        if not force and len(pending) < checkpoint_every:
+            return
+        batch = pd.concat(pending).sort_index()
+        pending = []
+        if cache_path is None:
+            # 无落盘路径时暂存在 existing 容器语义里（实际是内存累加）
+            existing = merge_market_hq(existing, batch)
+            return
+        existing = merge_market_hq(existing, batch)
+        save_market_hq(existing, cache_path)
+        if verbose:
+            print(f"  checkpoint → {cache_path} rows={len(existing)}")
+
+    def _consume(td: str, day_df: pd.DataFrame) -> None:
+        nonlocal done
+        with state_lock:
+            done += 1
+            if verbose:
+                print(f"  [{done}/{total}] {td}")
+            if day_df is not None and not day_df.empty:
+                pending.append(day_df)
+            _flush_locked(force=False)
+
+    def _pull(td: str, *, local_pro=None) -> tuple[str, pd.DataFrame]:
+        # 并发时每任务独立 pro，避免多线程共享同一 client
+        client = local_pro if local_pro is not None else get_pro()
+        day_df = _fetch_one_day(client, td)
         if sleep_sec > 0:
             time.sleep(sleep_sec)
+        return td, day_df
 
-    if not chunks:
+    if workers == 1:
+        for td in trade_dates:
+            _, day_df = _pull(td, local_pro=pro)
+            _consume(td, day_df)
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_pull, td) for td in trade_dates]
+            for fut in as_completed(futures):
+                td, day_df = fut.result()
+                _consume(td, day_df)
+
+    with state_lock:
+        _flush_locked(force=True)
+
+    if cache_path is not None:
+        out = load_market_hq(cache_path)
+    else:
+        out = existing
+
+    if out is None or out.empty:
         raise ValueError("未拉取到任何行情数据")
-
-    return pd.concat(chunks).sort_index()
+    return out.sort_index()
 
 
 # ---------------------------------------------------------------------------
@@ -479,8 +594,13 @@ def fetch_and_save_market(
     sleep_sec: float = 0.35,
     verbose: bool = True,
     refresh_members: bool = False,
+    workers: int = 1,
+    checkpoint_every: int = 5,
 ) -> pd.DataFrame:
-    """全量/区间拉取行情并写入 hq 缓存（与已有缓存 merge，同键 keep last）。"""
+    """全量/区间拉取行情并写入 hq 缓存（与已有缓存 merge，同键 keep last）。
+
+    全市场按日模式会边拉边 checkpoint，中断后重跑自动跳过已有日期。
+    """
     if verbose:
         mode = f"指数池 {universe}" if universe else "全市场按日"
         print(f"fetch_market: {start} ~ {end} ({mode})")
@@ -495,12 +615,22 @@ def fetch_and_save_market(
             verbose=verbose,
             refresh_members=refresh_members,
         )
+        existing = load_market_hq(out_path)
+        merged = merge_market_hq(existing, hq)
+        save_market_hq(merged, out_path)
     else:
-        hq = fetch_hq_from_tushare(start, end, sleep_sec=sleep_sec, verbose=verbose)
+        # 按日拉取内部已 skip_existing + checkpoint 落盘
+        merged = fetch_hq_from_tushare(
+            start,
+            end,
+            sleep_sec=sleep_sec,
+            verbose=verbose,
+            out_path=out_path,
+            checkpoint_every=checkpoint_every,
+            workers=workers,
+            skip_existing=True,
+        )
 
-    existing = load_market_hq(out_path)
-    merged = merge_market_hq(existing, hq)
-    save_market_hq(merged, out_path)
     if verbose:
         n_inst = merged.index.get_level_values("instrument").nunique()
         print(f"已保存 hq 缓存: {out_path} shape={merged.shape} 股票数={n_inst}")

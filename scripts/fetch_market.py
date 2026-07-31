@@ -51,7 +51,19 @@ def main() -> None:
         help="增量指定交易日，如 2026-06-28（配合 --update）",
     )
     parser.add_argument("--sleep", type=float, default=0.35, help="Tushare 请求间隔秒")
-    parser.add_argument("--batch-size", type=int, default=40, help="按股票池拉取时每批股票数")
+    parser.add_argument("--batch-size", type=int, default=40, help="按股票池拉取时每批股票数（已弃用，保留兼容）")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="全市场按日拉取时的并发天数（V1 建议 2~4；过大易限流）",
+    )
+    parser.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=5,
+        help="全市场按日拉取时每 N 个交易日落盘一次（中断可续跑）",
+    )
     parser.add_argument(
         "--refresh-members",
         action="store_true",
@@ -89,6 +101,8 @@ def main() -> None:
         batch_size=args.batch_size,
         sleep_sec=args.sleep,
         refresh_members=args.refresh_members,
+        workers=args.workers,
+        checkpoint_every=args.checkpoint_every,
     )
 
 
