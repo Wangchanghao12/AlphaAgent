@@ -30,9 +30,17 @@ RETRYABLE_NETWORK_ERRORS = (
     requests.exceptions.Timeout,
     requests.exceptions.ChunkedEncodingError,
     TimeoutError,
+    ConnectionResetError,
+    ConnectionAbortedError,
+    ConnectionRefusedError,
+    BrokenPipeError,
 )
 
+# Linux: EPIPE / ECONNRESET / ETIMEDOUT / ECONNREFUSED
+_RETRYABLE_ERRNOS = {32, 104, 110, 111}
+
 # Tushare 限流 / 临时性 API 报错关键词
+# 注意：tushare 常把底层网络错误包装成 Exception(str/tuple)，需靠文案匹配
 RETRYABLE_API_MARKERS = (
     "最多访问",
     "请稍后再试",
@@ -42,6 +50,17 @@ RETRYABLE_API_MARKERS = (
     "timed out",
     "连接",
     "繁忙",
+    "connection aborted",
+    "connection reset",
+    "connection refused",
+    "remotely closed",
+    "remote end closed",
+    "broken pipe",
+    "temporarily unavailable",
+    "gateway",
+    "502",
+    "503",
+    "504",
 )
 
 _config: dict[str, float | int] = {
@@ -84,10 +103,22 @@ def _read_http_url() -> str:
     return url.strip().strip('"').strip("'").rstrip("/")
 
 
+def _exception_text(exc: BaseException) -> str:
+    parts = [str(exc), repr(exc)]
+    if getattr(exc, "args", None):
+        parts.append(" ".join(str(a) for a in exc.args))
+    cause = getattr(exc, "__cause__", None) or getattr(exc, "__context__", None)
+    if isinstance(cause, BaseException):
+        parts.append(_exception_text(cause))
+    return " ".join(parts).lower()
+
+
 def _is_retryable(exc: Exception) -> bool:
     if isinstance(exc, RETRYABLE_NETWORK_ERRORS):
         return True
-    msg = str(exc)
+    if isinstance(exc, OSError) and getattr(exc, "errno", None) in _RETRYABLE_ERRNOS:
+        return True
+    msg = _exception_text(exc)
     return any(marker in msg for marker in RETRYABLE_API_MARKERS)
 
 

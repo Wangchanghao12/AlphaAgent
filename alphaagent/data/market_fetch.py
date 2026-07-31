@@ -22,7 +22,7 @@ import pandas as pd
 from alphaagent.core.paths import MARKET_HQ_PATH
 from alphaagent.core.types import DAILY_BASIC_COLUMNS
 from alphaagent.data.index_members import append_snapshot, resolve_index_members_cached
-from alphaagent.data.tushare_client import get_pro
+from alphaagent.data.tushare_client import _is_retryable, get_pro
 from alphaagent.data.universe import (
     apply_is_st,
     fetch_index_members_for_dates,
@@ -653,34 +653,79 @@ def fetch_hq_from_tushare(
         if need_flush:
             _flush(force=False)
 
+    failed_days: list[tuple[str, str]] = []
+    day_retries = 3
+
     def _pull(td: str, *, local_pro=None) -> tuple[str, pd.DataFrame]:
-        # 并发时每任务独立 pro，避免多线程共享同一 client
-        client = local_pro if local_pro is not None else get_pro()
-        day_df = _fetch_one_day(client, td)
-        if sleep_sec > 0:
-            time.sleep(sleep_sec)
-        return td, day_df
+        # 并发时每任务独立 pro；单日再包一层可恢复错误重试，避免整任务崩掉
+        last_exc: Exception | None = None
+        for attempt in range(day_retries):
+            try:
+                client = local_pro if local_pro is not None else get_pro()
+                day_df = _fetch_one_day(client, td)
+                if sleep_sec > 0:
+                    time.sleep(sleep_sec)
+                return td, day_df
+            except Exception as exc:
+                last_exc = exc
+                if attempt + 1 >= day_retries or not _is_retryable(exc):
+                    break
+                delay = min(30.0, 2.0 * (2**attempt))
+                if verbose:
+                    print(
+                        f"  [day-retry {attempt + 1}/{day_retries}] {td}: {exc}，"
+                        f"{delay:.1f}s 后重试",
+                        flush=True,
+                    )
+                time.sleep(delay)
+        assert last_exc is not None
+        raise last_exc
+
+    def _handle_day_result(td: str, day_df: pd.DataFrame | None, exc: Exception | None) -> None:
+        nonlocal done
+        if exc is not None:
+            failed_days.append((td, str(exc)))
+            if verbose:
+                print(f"  WARN: 跳过失败交易日 {td}: {exc}", flush=True)
+            with state_lock:
+                done += 1
+            return
+        _consume(td, day_df if day_df is not None else pd.DataFrame())
 
     if workers == 1:
         for td in trade_dates:
-            _, day_df = _pull(td, local_pro=pro)
-            _consume(td, day_df)
+            try:
+                _, day_df = _pull(td, local_pro=pro)
+                _handle_day_result(td, day_df, None)
+            except Exception as exc:
+                _handle_day_result(td, None, exc)
     else:
         # 控制在途任务数 = workers，避免一次 submit 两千个 future
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            inflight: set = set()
+            inflight: dict = {}
             idx = 0
             n_dates = len(trade_dates)
             while idx < n_dates or inflight:
                 while idx < n_dates and len(inflight) < workers:
-                    inflight.add(pool.submit(_pull, trade_dates[idx]))
+                    fut = pool.submit(_pull, trade_dates[idx])
+                    inflight[fut] = trade_dates[idx]
                     idx += 1
-                finished, inflight = wait(inflight, return_when=FIRST_COMPLETED)
+                finished, _ = wait(inflight.keys(), return_when=FIRST_COMPLETED)
                 for fut in finished:
-                    td, day_df = fut.result()
-                    _consume(td, day_df)
+                    td = inflight.pop(fut)
+                    try:
+                        got_td, day_df = fut.result()
+                        _handle_day_result(got_td, day_df, None)
+                    except Exception as exc:
+                        _handle_day_result(td, None, exc)
 
     _flush(force=True)
+    if failed_days and verbose:
+        print(f"  WARN: {len(failed_days)} 个交易日失败（已跳过，可重跑自动补齐）:", flush=True)
+        for td, err in failed_days[:20]:
+            print(f"    {td}: {err}", flush=True)
+        if len(failed_days) > 20:
+            print(f"    ... 另有 {len(failed_days) - 20} 天", flush=True)
 
     if cache_path is not None:
         if compact_at_end:

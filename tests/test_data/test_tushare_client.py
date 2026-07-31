@@ -65,6 +65,11 @@ def test_is_retryable_network_error():
     assert _is_retryable(requests.exceptions.ConnectionError("timed out"))
     assert _is_retryable(TimeoutError("timed out"))
     assert _is_retryable(Exception("抱歉，您每分钟最多访问该接口500次"))
+    # tushare 常把 Connection reset 包装成普通 Exception
+    assert _is_retryable(
+        Exception(("Connection aborted.", ConnectionResetError(104, "Connection reset by peer")))
+    )
+    assert _is_retryable(ConnectionResetError(104, "Connection reset by peer"))
 
 
 def test_is_not_retryable_auth_error():
