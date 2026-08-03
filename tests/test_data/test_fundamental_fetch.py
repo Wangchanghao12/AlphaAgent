@@ -51,6 +51,28 @@ def test_raw_fina_to_quarterly_and_disclosure():
     assert wide.loc[pd.Timestamp("2024-03-31"), "000001.SZ"] == pd.Timestamp("2024-04-28")
 
 
+def test_raw_fina_to_quarterly_coerces_mixed_object(tmp_path):
+    """Tushare 偶发返回空串/混型 object，须能落 parquet。"""
+    from alphaagent.data.fundamental_fetch import save_quarterly
+
+    raw = pd.DataFrame(
+        {
+            "ts_code": ["000001.SZ", "000002.SZ"],
+            "ann_date": ["20240428", "20240429"],
+            "end_date": ["20240331", "20240331"],
+            "roe": [0.12, ""],
+            "roa": ["0.05", None],
+            "debt_to_assets": [0.5, 0.48],
+        }
+    )
+    q = raw_fina_to_quarterly(raw)
+    assert q["funda_roe"].dtype.kind == "f"
+    assert q["funda_roa"].dtype.kind == "f"
+    path = tmp_path / "quarterly.parquet"
+    save_quarterly(q, path)
+    assert path.is_file()
+
+
 def test_merge_quarterly_and_disclosure():
     idx1 = pd.MultiIndex.from_tuples(
         [("2023-12-31", "000001.SZ")],

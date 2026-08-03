@@ -247,6 +247,16 @@ def fetch_fina_indicator_period(
     return _dedupe_fina_raw(pd.concat(non_empty, ignore_index=True))
 
 
+def _coerce_quarterly_numeric(df: pd.DataFrame) -> pd.DataFrame:
+    """将 funda_* 列强制为数值，避免 object 混入导致 to_parquet 失败。"""
+    if df.empty:
+        return df
+    out = df.copy()
+    for col in out.columns:
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+    return out
+
+
 def raw_fina_to_quarterly(raw: pd.DataFrame) -> pd.DataFrame:
     """fina_indicator 原始表 → (report_end, instrument) 索引的 panel 列。"""
     if raw.empty:
@@ -259,7 +269,8 @@ def raw_fina_to_quarterly(raw: pd.DataFrame) -> pd.DataFrame:
     df = df.rename(columns=rename)
     value_cols = list(rename.values())
     out = df.set_index(["report_end", "instrument"])[value_cols]
-    return out.sort_index()
+    out = _coerce_quarterly_numeric(out)
+    return out[~out.index.duplicated(keep="last")].sort_index()
 
 
 def fetch_statement_period(
@@ -420,7 +431,7 @@ def merge_disclosure_wide(existing: pd.DataFrame, new: pd.DataFrame) -> pd.DataF
 def save_quarterly(df: pd.DataFrame, path: Path | str = FUNDAMENTAL_QUARTERLY_PATH) -> Path:
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(out)
+    _coerce_quarterly_numeric(df).to_parquet(out)
     return out
 
 
@@ -474,9 +485,20 @@ def fetch_and_save_periods(
     """
     quarterly_acc = load_quarterly_cache(quarterly_path)
     disclosure_acc = load_disclosure_wide(disclosure_path)
+    cached_ends: set[pd.Timestamp] = set()
+    if not quarterly_acc.empty:
+        cached_ends = {
+            pd.Timestamp(x) for x in quarterly_acc.index.get_level_values("report_end").unique()
+        }
 
     for period in periods:
         period = _normalize_period(period)
+        period_ts = pd.Timestamp(period)
+        if period_ts in cached_ends:
+            if verbose:
+                n = int((quarterly_acc.index.get_level_values("report_end") == period_ts).sum())
+                print(f"跳过已缓存报告期: {period}（{n} 条）")
+            continue
         if verbose:
             print(f"拉取 fina_indicator: {period}")
         raw = fetch_fina_indicator_period(
@@ -516,6 +538,7 @@ def fetch_and_save_periods(
             disclosure_acc = merge_disclosure_wide(disclosure_acc, wide)
         save_quarterly(quarterly_acc, quarterly_path)
         save_disclosure_calendar(disclosure_acc, disclosure_path)
+        cached_ends.add(period_ts)
         if verbose:
             n_inst = q.index.get_level_values("instrument").nunique()
             print(
