@@ -8,9 +8,10 @@
 #   bash scripts/run_factor_mining.sh --no-submit --max-turns 2
 #
 # 前置：
-#   1. uv sync --extra mining
+#   1. 依赖：uv sync --extra mining，或 conda 环境已装 mining 依赖（openai/agentscope 等）
 #   2. artifacts/panel/panel_1d.parquet 已存在（开源包离线 build，或 Tushare 拉数）
 #   3. 若要 submit_factor：先 init_factorlib + ingest_factors --expr-dir ...
+# 启动器：优先 uv run；无 uv 时用当前 PATH 的 python（conda 可先 conda activate）
 
 set -euo pipefail
 
@@ -72,7 +73,14 @@ else
   SCRIPT=scripts/factor_mining_agentscope.py
 fi
 
-exec uv run python "$SCRIPT" \
+if command -v uv >/dev/null 2>&1; then
+  PY=(uv run python)
+else
+  PY=(python)
+  echo "提示: 未找到 uv，使用 $(command -v python)（请确认已 conda activate 且装好 mining 依赖）" >&2
+fi
+
+exec "${PY[@]}" "$SCRIPT" \
   --panel "$PANEL" \
   --label-col "$LABEL_COL" \
   "$@"
