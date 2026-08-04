@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -421,15 +422,50 @@ def update_panel_from_hq(
     return merged
 
 
-def load_panel(path: Path | str = DEFAULT_PANEL_PATH) -> pd.DataFrame:
-    """加载 panel parquet。"""
+def load_panel(
+    path: Path | str = DEFAULT_PANEL_PATH,
+    *,
+    columns: Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """加载 panel parquet。
+
+    ``columns`` 传入时只读入这些列（index 列始终保留），显著降低内存与读盘时间；
+    用于 lane 化挖掘时每个进程只加载自己需要的列。None 时读全量（保持原行为）。
+    """
     p = Path(path)
     if not p.is_file():
         raise FileNotFoundError(f"panel 不存在: {p}")
-    panel = pd.read_parquet(p)
+    panel = pd.read_parquet(p, columns=list(columns) if columns else None)
     if "instrument" not in panel.index.names and "code" in panel.index.names:
         panel = panel.rename_axis(index={"code": "instrument"})
     return _coerce_datetime_index(panel)
+
+
+def expand_panel_columns(path: Path | str, columns: Sequence[str]) -> list[str]:
+    """把 extern 列选择展开为具体列名。
+
+    支持 ``funda_*`` 这类通配符（展开为 schema 中所有以该前缀开头的列）；
+    仅读 parquet schema（不加载数据），开销小。用于 lane 化挖掘时按前缀选列。
+    """
+    out: list[str] = []
+    patterns = [c for c in columns if c.endswith("*")]
+    if not patterns:
+        return list(columns)
+    try:
+        import pyarrow.parquet as pq
+
+        schema = pq.read_schema(Path(path))
+        all_names = [str(f.name) for f in schema]
+    except Exception:  # noqa: BLE001
+        # 读不到 schema 时退化为不展开，仅返回显式列
+        return [c for c in columns if not c.endswith("*")]
+    for col in columns:
+        if not col.endswith("*"):
+            out.append(col)
+            continue
+        prefix = col[:-1]
+        out.extend(n for n in all_names if n.startswith(prefix) and n not in out)
+    return out
 
 
 def save_panel(panel: pd.DataFrame, path: Path | str) -> Path:

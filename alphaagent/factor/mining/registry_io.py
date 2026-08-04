@@ -10,6 +10,11 @@ from typing import Any
 from alphaagent.factor.types import IngestPolicy
 from alphaagent.factor.zoo import FactorZoo
 from alphaagent.factor.zoo.similarity import SimilarityMatrix
+from alphaagent.factor.mining.filelock import FileLock
+
+
+def _registry_lock(registry_path: Path) -> FileLock:
+    return FileLock(Path(registry_path).expanduser().resolve().with_suffix(".lock"))
 
 
 def load_mining_registry(path: Path) -> dict[str, Any]:
@@ -22,7 +27,8 @@ def load_mining_registry(path: Path) -> dict[str, Any]:
 def save_mining_registry(path: Path, registry: dict[str, Any]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(registry, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    with _registry_lock(path):
+        path.write_text(json.dumps(registry, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _trim_similarity(sim: dict[str, Any] | None, top_k: int = 3) -> dict[str, Any] | None:
@@ -61,35 +67,36 @@ def upsert_mining_registry(
     dsl_path.write_text(expr.strip() + "\n", encoding="utf-8")
     rel_expr = dsl_path.relative_to(repo_root).as_posix()
 
-    registry = load_mining_registry(registry_path) if merge else {}
-    prev = registry.get(factor_id, {}) if merge else {}
+    with _registry_lock(registry_path):
+        registry = load_mining_registry(registry_path) if merge else {}
+        prev = registry.get(factor_id, {}) if merge else {}
 
-    entry: dict[str, Any] = {
-        "name": name,
-        "comment": comment or prev.get("comment") or name,
-        "expression_file": rel_expr,
-        "ingest_config": policy.ingest_config_dict(),
-        "ingested_at": datetime.now(timezone.utc).isoformat(),
-        "ingest_metrics": metrics,
-        "ingest_status": ingest_status,
-    }
-    sim = _trim_similarity(similarity)
-    if sim:
-        entry["similarity"] = sim
-    elif prev.get("similarity"):
-        entry["similarity"] = prev["similarity"]
-    if source == "submit" and "source_runs" not in prev:
-        entry["source"] = "submit"
-    for key in ("source_runs", "mining_metrics"):
-        if key in prev:
-            entry[key] = prev[key]
-    if prev.get("source") == "submit" and source != "submit":
-        entry["comment"] = prev.get("comment") or entry["comment"]
-        if "source" in prev:
-            entry["source"] = prev["source"]
+        entry: dict[str, Any] = {
+            "name": name,
+            "comment": comment or prev.get("comment") or name,
+            "expression_file": rel_expr,
+            "ingest_config": policy.ingest_config_dict(),
+            "ingested_at": datetime.now(timezone.utc).isoformat(),
+            "ingest_metrics": metrics,
+            "ingest_status": ingest_status,
+        }
+        sim = _trim_similarity(similarity)
+        if sim:
+            entry["similarity"] = sim
+        elif prev.get("similarity"):
+            entry["similarity"] = prev["similarity"]
+        if source == "submit" and "source_runs" not in prev:
+            entry["source"] = "submit"
+        for key in ("source_runs", "mining_metrics"):
+            if key in prev:
+                entry[key] = prev[key]
+        if prev.get("source") == "submit" and source != "submit":
+            entry["comment"] = prev.get("comment") or entry["comment"]
+            if "source" in prev:
+                entry["source"] = prev["source"]
 
-    registry[factor_id] = entry
-    save_mining_registry(registry_path, registry)
+        registry[factor_id] = entry
+        save_mining_registry(registry_path, registry)
     return str(registry_path), str(dsl_path)
 
 

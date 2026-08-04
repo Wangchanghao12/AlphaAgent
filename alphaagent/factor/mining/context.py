@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from alphaagent.factor.types import DEFAULT_LABEL_COL
@@ -23,6 +23,8 @@ class StockEvalContext:
     label_col: str = DEFAULT_LABEL_COL
     include_fundamentals: bool = True
     """是否载入基本面列（``funda_*``）。挖价量因子时可关闭以省内存。"""
+    columns: tuple[str, ...] | None = None
+    """只载入这些列（lane 化内存优化）；None 载入全量。始终隐含 label_col。"""
 
     def split_range(self, split: str) -> tuple[str, str]:
         if split == "train":

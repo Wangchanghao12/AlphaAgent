@@ -10,7 +10,7 @@ from typing import Any
 
 import pandas as pd
 
-from alphaagent.data.panel import load_panel, slice_panel
+from alphaagent.data.panel import expand_panel_columns, load_panel, slice_panel
 from alphaagent.factor.mining.context import StockEvalContext
 
 
@@ -44,7 +44,12 @@ class SessionStore:
     def create(self, ctx: StockEvalContext) -> StockEvalSession:
         t0 = time.perf_counter()
         cov_start, cov_end = ctx.coverage_range()
-        panel = load_panel(ctx.panel_path)
+        cols: list[str] | None = None
+        if ctx.columns:
+            cols = expand_panel_columns(ctx.panel_path, ctx.columns)
+            if ctx.label_col not in cols:
+                cols.append(ctx.label_col)
+        panel = load_panel(ctx.panel_path, columns=cols)
         dropped_funda = 0
         if not ctx.include_fundamentals:
             funda_cols = [c for c in panel.columns if str(c).startswith("funda_")]
@@ -64,6 +69,7 @@ class SessionStore:
                 "coverage_end": cov_end,
                 "include_fundamentals": ctx.include_fundamentals,
                 "dropped_fundamental_cols": dropped_funda,
+                "columns": list(cols) if cols else None,
             },
         )
         with self._lock:

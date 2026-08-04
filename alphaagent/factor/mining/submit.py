@@ -16,6 +16,7 @@ from alphaagent.factor.mining.service import StockEvalService
 from alphaagent.factor.zoo import DEFAULT_FACTORLIB_ROOT, FactorZoo
 from alphaagent.factor.zoo.realign import panel_paths_match, realign_factorlib_to_panel
 from alphaagent.factor.mining.registry_io import upsert_mining_registry
+from alphaagent.factor.mining.filelock import factor_report_lock
 
 
 def slug_factor_id(name: str) -> str:
@@ -167,148 +168,149 @@ class FactorSubmitService:
                     "holdout_check": holdout_payload,
                 }
 
-        try:
-            zoo = FactorZoo.open(self.factorlib_path)
-        except FileNotFoundError as e:
-            return {
-                "ok": False,
-                "stored": False,
-                "error": f"factorlib_not_initialized: {self.factorlib_path}",
-                "error_type": "FactorLibError",
-                "detail": str(e),
-            }
-
-        try:
-            panel = load_panel_for_zoo(zoo, panel_path=ctx.panel_path)
-        except ValueError as e:
-            if not self.auto_realign_panel:
+        with factor_report_lock(self.factorlib_path):
+            try:
+                zoo = FactorZoo.open(self.factorlib_path)
+            except FileNotFoundError as e:
                 return {
                     "ok": False,
                     "stored": False,
-                    "error": str(e),
-                    "error_type": "PanelMismatchError",
+                    "error": f"factorlib_not_initialized: {self.factorlib_path}",
+                    "error_type": "FactorLibError",
+                    "detail": str(e),
                 }
-            zoo_panel = Path(zoo.manifest.panel_path)
-            if not panel_paths_match(ctx.panel_path, zoo_panel):
+
+            try:
+                panel = load_panel_for_zoo(zoo, panel_path=ctx.panel_path)
+            except ValueError as e:
+                if not self.auto_realign_panel:
+                    return {
+                        "ok": False,
+                        "stored": False,
+                        "error": str(e),
+                        "error_type": "PanelMismatchError",
+                    }
+                zoo_panel = Path(zoo.manifest.panel_path)
+                if not panel_paths_match(ctx.panel_path, zoo_panel):
+                    return {
+                        "ok": False,
+                        "stored": False,
+                        "error": (
+                            f"{e}; panel 路径不一致: session={ctx.panel_path} zoo={zoo_panel}，"
+                            "请用 --panel 与因子库相同文件，或重新 init_factorlib"
+                        ),
+                        "error_type": "PanelMismatchError",
+                    }
+                try:
+                    from alphaagent.data.panel import load_panel as _load_panel
+
+                    full_panel = _load_panel(ctx.panel_path).sort_index()
+                    realign_info = realign_factorlib_to_panel(
+                        self.factorlib_path,
+                        panel=full_panel,
+                        panel_path=ctx.panel_path,
+                    )
+                    zoo = FactorZoo.open(self.factorlib_path)
+                    panel = full_panel
+                except Exception as exc:  # noqa: BLE001
+                    return {
+                        "ok": False,
+                        "stored": False,
+                        "error": f"panel_realign_failed: {exc}",
+                        "error_type": "PanelRealignError",
+                    }
+            else:
+                realign_info = None
+
+            if realign_info is None and len(panel) != zoo.manifest.n_rows:
                 return {
                     "ok": False,
                     "stored": False,
                     "error": (
-                        f"{e}; panel 路径不一致: session={ctx.panel_path} zoo={zoo_panel}，"
-                        "请用 --panel 与因子库相同文件，或重新 init_factorlib"
+                        f"panel 行数 {len(panel)} != 库 n_rows {zoo.manifest.n_rows}；"
+                        "请用相同 panel 初始化库，或仅用于调试切片"
                     ),
                     "error_type": "PanelMismatchError",
                 }
-            try:
-                from alphaagent.data.panel import load_panel as _load_panel
 
-                full_panel = _load_panel(ctx.panel_path).sort_index()
-                realign_info = realign_factorlib_to_panel(
-                    self.factorlib_path,
-                    panel=full_panel,
-                    panel_path=ctx.panel_path,
-                )
-                zoo = FactorZoo.open(self.factorlib_path)
-                panel = full_panel
-            except Exception as exc:  # noqa: BLE001
-                return {
-                    "ok": False,
-                    "stored": False,
-                    "error": f"panel_realign_failed: {exc}",
-                    "error_type": "PanelRealignError",
-                }
-        else:
-            realign_info = None
-
-        if realign_info is None and len(panel) != zoo.manifest.n_rows:
-            return {
-                "ok": False,
-                "stored": False,
-                "error": (
-                    f"panel 行数 {len(panel)} != 库 n_rows {zoo.manifest.n_rows}；"
-                    "请用相同 panel 初始化库，或仅用于调试切片"
-                ),
-                "error_type": "PanelMismatchError",
-            }
-
-        result = ingest_factor(
-            zoo,
-            factor_id=factor_id,
-            name=name,
-            expr=expr,
-            panel=panel,
-            policy=IngestPolicy.from_context(ctx, max_cs_corr=self.max_cs_corr, similar_top_k=self.similar_top_k),
-            overwrite=self.overwrite,
-        )
-
-        delivery_ok, delivery_reasons = check_delivery_metrics(result.metrics)
-        rolled_back = False
-        if result.stored and not delivery_ok:
-            zoo.delete_factor(factor_id)
-            rolled_back = True
-            result = IngestResult(
-                factor_id=result.factor_id,
-                col_idx=None,
-                stored=False,
-                skipped_reason=f"delivery_check_failed:{','.join(delivery_reasons)}",
-                metrics=result.metrics,
-                similarity=result.similarity,
-                extra=result.extra,
-            )
-
-        payload: dict[str, Any] = {
-            "ok": result.stored,
-            "stored": result.stored,
-            "factor_id": factor_id,
-            "factor_name": name,
-            "comment": comment.strip(),
-            "eval_range": {"start": ctx.train_start, "end": ctx.val_end},
-            "metrics": result.metrics,
-            "delivery_check": {"passed": delivery_ok, "fail_reasons": delivery_reasons},
-            "similarity": result.similarity,
-            "holdout_check": holdout_payload,
-            "skipped_reason": result.skipped_reason,
-            "rolled_back": rolled_back,
-        }
-        if realign_info and realign_info.get("realigned"):
-            payload["panel_realigned"] = realign_info
-
-        if result.stored:
-            policy = IngestPolicy.from_context(ctx, max_cs_corr=self.max_cs_corr, similar_top_k=self.similar_top_k)
-            reg_path, dsl_path = upsert_mining_registry(
-                self.registry_path,
+            result = ingest_factor(
+                zoo,
                 factor_id=factor_id,
                 name=name,
-                comment=comment.strip(),
                 expr=expr,
-                expr_dir=self.expr_dir,
-                repo_root=self.repo_root,
-                policy=policy,
-                metrics=result.metrics,
-                similarity=result.similarity,
-                ingest_status="stored",
-                source="submit",
+                panel=panel,
+                policy=IngestPolicy.from_context(ctx, max_cs_corr=self.max_cs_corr, similar_top_k=self.similar_top_k),
+                overwrite=self.overwrite,
             )
-            payload["registry_path"] = reg_path
-            payload["dsl_path"] = dsl_path
-            payload["factorlib_path"] = str(self.factorlib_path)
-        elif result.skipped_reason:
-            payload["ok"] = False
-            if result.skipped_reason.startswith("cs_corr"):
-                payload["error_type"] = "DuplicateFactorError"
-            elif result.skipped_reason == "already_exists":
-                payload["error_type"] = "AlreadyExistsError"
-            elif result.skipped_reason.startswith("delivery_check_failed"):
-                payload["error_type"] = "DeliveryCheckError"
-            else:
-                payload["error_type"] = "IngestSkipped"
-            payload["error"] = result.skipped_reason
-        else:
-            payload["ok"] = False
-            payload["error_type"] = "IngestError"
-            payload["error"] = "ingest_failed"
 
-        return payload
+            delivery_ok, delivery_reasons = check_delivery_metrics(result.metrics)
+            rolled_back = False
+            if result.stored and not delivery_ok:
+                zoo.delete_factor(factor_id)
+                rolled_back = True
+                result = IngestResult(
+                    factor_id=result.factor_id,
+                    col_idx=None,
+                    stored=False,
+                    skipped_reason=f"delivery_check_failed:{','.join(delivery_reasons)}",
+                    metrics=result.metrics,
+                    similarity=result.similarity,
+                    extra=result.extra,
+                )
+
+            payload: dict[str, Any] = {
+                "ok": result.stored,
+                "stored": result.stored,
+                "factor_id": factor_id,
+                "factor_name": name,
+                "comment": comment.strip(),
+                "eval_range": {"start": ctx.train_start, "end": ctx.val_end},
+                "metrics": result.metrics,
+                "delivery_check": {"passed": delivery_ok, "fail_reasons": delivery_reasons},
+                "similarity": result.similarity,
+                "holdout_check": holdout_payload,
+                "skipped_reason": result.skipped_reason,
+                "rolled_back": rolled_back,
+            }
+            if realign_info and realign_info.get("realigned"):
+                payload["panel_realigned"] = realign_info
+
+            if result.stored:
+                policy = IngestPolicy.from_context(ctx, max_cs_corr=self.max_cs_corr, similar_top_k=self.similar_top_k)
+                reg_path, dsl_path = upsert_mining_registry(
+                    self.registry_path,
+                    factor_id=factor_id,
+                    name=name,
+                    comment=comment.strip(),
+                    expr=expr,
+                    expr_dir=self.expr_dir,
+                    repo_root=self.repo_root,
+                    policy=policy,
+                    metrics=result.metrics,
+                    similarity=result.similarity,
+                    ingest_status="stored",
+                    source="submit",
+                )
+                payload["registry_path"] = reg_path
+                payload["dsl_path"] = dsl_path
+                payload["factorlib_path"] = str(self.factorlib_path)
+            elif result.skipped_reason:
+                payload["ok"] = False
+                if result.skipped_reason.startswith("cs_corr"):
+                    payload["error_type"] = "DuplicateFactorError"
+                elif result.skipped_reason == "already_exists":
+                    payload["error_type"] = "AlreadyExistsError"
+                elif result.skipped_reason.startswith("delivery_check_failed"):
+                    payload["error_type"] = "DeliveryCheckError"
+                else:
+                    payload["error_type"] = "IngestSkipped"
+                payload["error"] = result.skipped_reason
+            else:
+                payload["ok"] = False
+                payload["error_type"] = "IngestError"
+                payload["error"] = "ingest_failed"
+
+            return payload
 
 
 def default_factorlib_path(repo_root: Path) -> Path:

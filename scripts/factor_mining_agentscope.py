@@ -37,6 +37,7 @@ from alphaagent.core.paths import FACTORZOO_DIR, PANEL_PATH  # noqa: E402
 from alphaagent.factor.mining import MiningConfig  # noqa: E402
 from alphaagent.factor.mining.agentscope_run import run_factor_mining_agentscope  # noqa: E402
 from alphaagent.factor.mining.context import StockEvalContext  # noqa: E402
+from alphaagent.factor.mining.lanes import build_lane_prompt_addendum, get_lane  # noqa: E402
 from alphaagent.factor.mining.seed_factors import build_user_message_with_seed_factors  # noqa: E402
 from alphaagent.factor.types import DEFAULT_LABEL_COL  # noqa: E402
 
@@ -73,6 +74,19 @@ def _parse_args() -> argparse.Namespace:
         "--no-fundamentals",
         action="store_true",
         help="不载入基本面列(funda_*)，省内存；prompt 也会隐藏基本面字段（适合只挖价量因子）",
+    )
+    p.add_argument(
+        "--cols",
+        default=None,
+        help="只载入这些 panel 列（逗号分隔，支持 funda_* 通配符），省内存；不传则载入全量",
+    )
+    p.add_argument(
+        "--mine-lane",
+        default=None,
+        help=(
+            "只挖指定信息维度（lane），自动设置 --cols 与注入约束 prompt，避免多进程重复挖掘。"
+            "可选：momentum/volatility/volume/fundamental/weekly/crosssectional"
+        ),
     )
     p.add_argument("--temperature", type=float, default=None)
     p.add_argument("--max-tokens", type=int, default=8192)
@@ -157,6 +171,19 @@ def main() -> int:
             return 2
     base_url = os.environ.get("OPENAI_API_BASE")
 
+    # --- lane 化：解析赛道，联动列集 / 基本面 / 约束 prompt ---
+    lane_extra: str = ""
+    include_fundamentals = not args.no_fundamentals
+    cols: tuple[str, ...] | None = None
+    if args.mine_lane:
+        lane = get_lane(args.mine_lane)
+        cols = tuple(lane.columns)
+        include_fundamentals = include_fundamentals or lane.include_fundamentals
+        lane_extra = build_lane_prompt_addendum(lane)
+        print(f"[lane] 赛道={lane.name}（{lane.title}） cols={len(lane.columns)} include_fundamentals={include_fundamentals}")
+    elif args.cols:
+        cols = tuple(c.strip() for c in args.cols.split(",") if c.strip())
+
     config = MiningConfig(
         eval=StockEvalContext(
             panel_path=_resolve(args.panel),
@@ -167,7 +194,8 @@ def main() -> int:
             holdout_start=None if args.no_holdout else args.holdout_start,
             holdout_end=None if args.no_holdout else args.holdout_end,
             label_col=args.label_col,
-            include_fundamentals=not args.no_fundamentals,
+            include_fundamentals=include_fundamentals,
+            columns=cols,
         ),
         model=model,
         temperature=args.temperature,
@@ -192,6 +220,7 @@ def main() -> int:
             base_url=base_url,
             log_dir=args.log_dir,
             include_operator_catalog=not args.no_operator_catalog,
+            extra_instructions=lane_extra,
             verbose=not args.quiet,
         )
     )
