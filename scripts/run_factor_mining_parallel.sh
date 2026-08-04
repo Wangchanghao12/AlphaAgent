@@ -15,7 +15,7 @@
 #   bash scripts/run_factor_mining_parallel.sh --lanes momentum,fundamental --no-submit --max-turns 3
 #
 # 前置：同 run_factor_mining.sh（panel 已存在、mining 依赖已装、factorlib 已 init）。
-
+export OPENAI_API_KEY="sk-CdmOG9MFqExhObZialn7-Q"
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

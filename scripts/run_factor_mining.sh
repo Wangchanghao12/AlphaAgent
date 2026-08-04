@@ -12,7 +12,7 @@
 #   2. artifacts/panel/panel_1d.parquet 已存在（开源包离线 build，或 Tushare 拉数）
 #   3. 若要 submit_factor：先 init_factorlib + ingest_factors --expr-dir ...
 # 启动器：优先 uv run；无 uv 时用当前 PATH 的 python（conda 可先 conda activate）
-
+export OPENAI_API_KEY="sk-CdmOG9MFqExhObZialn7-Q"
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
