@@ -74,7 +74,7 @@ def _use_numba_parallel_for_length(n: int) -> bool:
 # --- Numba：变长窗口 min / max / sum / mean ---------------------------------
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _roll_dyn_mm_sm_numba(vals: np.ndarray, wvals: np.ndarray, op: int) -> np.ndarray:
     """op: 0=min, 1=max, 2=sum, 3=mean"""
     n = vals.shape[0]
@@ -125,7 +125,7 @@ def _roll_dyn_mm_sm_numba(vals: np.ndarray, wvals: np.ndarray, op: int) -> np.nd
 
 if _HAS_NUMBA:
 
-    @njit(cache=True, parallel=True)
+    @njit(cache=True, parallel=True, nogil=True)
     def _roll_dyn_mm_sm_numba_parallel(vals: np.ndarray, wvals: np.ndarray, op: int) -> np.ndarray:
         """与 _roll_dyn_mm_sm_numba 相同，外层 ``i`` 用 ``prange`` 并行。"""
         n = vals.shape[0]
@@ -174,7 +174,7 @@ if _HAS_NUMBA:
         return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _delay_dyn_numba(vals: np.ndarray, lags: np.ndarray) -> np.ndarray:
     n = vals.shape[0]
     out = np.empty(n, dtype=np.float32)
@@ -193,7 +193,7 @@ def _delay_dyn_numba(vals: np.ndarray, lags: np.ndarray) -> np.ndarray:
 
 if _HAS_NUMBA:
 
-    @njit(cache=True, parallel=True)
+    @njit(cache=True, parallel=True, nogil=True)
     def _delay_dyn_numba_parallel(vals: np.ndarray, lags: np.ndarray) -> np.ndarray:
         n = vals.shape[0]
         out = np.empty(n, dtype=np.float32)
@@ -210,7 +210,7 @@ if _HAS_NUMBA:
         return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _arg_extreme_dyn_numba(vals: np.ndarray, wvals: np.ndarray, want_max: int) -> np.ndarray:
     n = vals.shape[0]
     out = np.empty(n, dtype=np.float32)
@@ -250,7 +250,7 @@ def _arg_extreme_dyn_numba(vals: np.ndarray, wvals: np.ndarray, want_max: int) -
 
 if _HAS_NUMBA:
 
-    @njit(cache=True, parallel=True)
+    @njit(cache=True, parallel=True, nogil=True)
     def _arg_extreme_dyn_numba_parallel(
         vals: np.ndarray, wvals: np.ndarray, want_max: int
     ) -> np.ndarray:

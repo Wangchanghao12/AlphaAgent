@@ -69,7 +69,7 @@ def chip_bimodal_impl_id(name: str) -> int:
     raise ValueError('implementation must be "simple" or "dip"')
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _chip_pmin_pmax(lo_arr: np.ndarray, hi_arr: np.ndarray, lo: int, hi: int, eps: float):
     pmin = np.inf
     pmax = -np.inf
@@ -85,7 +85,7 @@ def _chip_pmin_pmax(lo_arr: np.ndarray, hi_arr: np.ndarray, lo: int, hi: int, ep
     return pmin, pmax, ok
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _chip_bin_index(price: float, pmin: float, bin_w: float, nbins: int) -> int:
     b = int((price - pmin) / bin_w)
     if b < 0:
@@ -95,7 +95,7 @@ def _chip_bin_index(price: float, pmin: float, bin_w: float, nbins: int) -> int:
     return b
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _chip_add_uniform_range(
     q: np.ndarray,
     weight: float,
@@ -119,7 +119,7 @@ def _chip_add_uniform_range(
         q[b] += per
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _chip_add_triangular_range(
     q: np.ndarray,
     weight: float,
@@ -167,7 +167,7 @@ def _chip_add_triangular_range(
         q[k] += ws[k] * inv
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _chip_turnover_rate(close_p: float, volume: float, cap: float, eps: float) -> float:
     if not (close_p == close_p) or not (volume == volume) or not (cap == cap):
         return 0.0
@@ -181,7 +181,7 @@ def _chip_turnover_rate(close_p: float, volume: float, cap: float, eps: float) -
     return tr
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _chip_build_hist_window(
     close: np.ndarray,
     volume: np.ndarray,
@@ -253,7 +253,7 @@ def _chip_build_hist_window(
     return pmin, bin_w, True
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _chip_metric_from_q(
     q: np.ndarray,
     pmin: float,
@@ -331,7 +331,7 @@ def _chip_metric_from_q(
     return np.nan
 
 
-@njit(cache=False)
+@njit(cache=False, nogil=True)
 def roll_chip_metric_daily_numba(
     close: np.ndarray,
     volume: np.ndarray,
@@ -376,7 +376,7 @@ def roll_chip_metric_daily_numba(
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _chip_peak_curvature(q: np.ndarray, nbins: int, eps: float) -> float:
     istar = 0
     qmax = q[0]
@@ -396,7 +396,7 @@ def _chip_peak_curvature(q: np.ndarray, nbins: int, eps: float) -> float:
     return (2.0 * qmax - qL - qR) / (qmax + eps)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _chip_peak_fwhm_width(q: np.ndarray, nbins: int, bin_w: float, eps: float) -> float:
     istar = 0
     qmax = q[0]
@@ -414,7 +414,7 @@ def _chip_peak_fwhm_width(q: np.ndarray, nbins: int, bin_w: float, eps: float) -
     return (float(right - left) + 1.0) * bin_w
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _chip_peak_fwhm(q: np.ndarray, nbins: int, bin_w: float, span: float, eps: float) -> float:
     fwhm = _chip_peak_fwhm_width(q, nbins, bin_w, eps)
     if span <= eps:
@@ -427,7 +427,7 @@ def _chip_peak_fwhm(q: np.ndarray, nbins: int, bin_w: float, span: float, eps: f
     return val
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _chip_sigma_close_vol(
     close: np.ndarray, volume: np.ndarray, lo: int, hi: int, eps: float
 ) -> float:
@@ -455,7 +455,7 @@ def _chip_sigma_close_vol(
     return np.sqrt(var) + eps
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _chip_hist_dip(q: np.ndarray, nbins: int) -> float:
     csum = 0.0
     for k in range(nbins):
@@ -476,7 +476,7 @@ def _chip_hist_dip(q: np.ndarray, nbins: int) -> float:
     return max_dev
 
 
-@njit(cache=False)
+@njit(cache=False, nogil=True)
 def roll_chip_peak_sharpness_daily_numba(
     close: np.ndarray,
     volume: np.ndarray,
@@ -530,7 +530,7 @@ def roll_chip_peak_sharpness_daily_numba(
     return out
 
 
-@njit(cache=False)
+@njit(cache=False, nogil=True)
 def roll_chip_bimodal_daily_numba(
     close: np.ndarray,
     volume: np.ndarray,
@@ -603,7 +603,7 @@ def roll_chip_bimodal_daily_numba(
     return out
 
 
-@njit(cache=False)
+@njit(cache=False, nogil=True)
 def roll_chip_wass_dist_daily_numba(
     close: np.ndarray,
     volume: np.ndarray,

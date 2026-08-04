@@ -156,7 +156,7 @@ def roll_fixed(
     return _roll_fixed_numba(vals, window, op, ddof)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _roll_fixed_numba(vals: np.ndarray, window: int, op: int, ddof: int) -> np.ndarray:
     """Numba 实现的固定窗滚动（与 C++ 语义一致）。"""
     n = vals.shape[0]
@@ -416,7 +416,7 @@ def wma(vals: np.ndarray, window: int, parallel: Optional[bool] = None) -> np.nd
     return _wma_numba(vals, window)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _wma_numba(vals: np.ndarray, window: int) -> np.ndarray:
     """与 ``function_registry`` 原 pandas 实现一致：窗口长 L 时使用 ``1..window`` 的后 L 项作权。"""
     n = vals.shape[0]
@@ -462,7 +462,7 @@ def delta(vals: np.ndarray, periods: int = 1, parallel: Optional[bool] = None) -
     return _delta_numba(vals, periods)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _delta_numba(vals: np.ndarray, periods: int) -> np.ndarray:
     """Numba DELTA 实现。"""
     n = vals.shape[0]
@@ -498,7 +498,7 @@ def pctchange(vals: np.ndarray, periods: int = 1, parallel: Optional[bool] = Non
     return _pctchange_numba(vals, periods)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _pctchange_numba(vals: np.ndarray, periods: int) -> np.ndarray:
     """Numba TS_PCTCHANGE 实现。"""
     n = vals.shape[0]
@@ -529,7 +529,7 @@ def _pctchange_numba(vals: np.ndarray, periods: int) -> np.ndarray:
 # =============================================================================
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _marks_center_extreme_numba(
     vals: np.ndarray, half_window: int, want_max: int
 ) -> np.ndarray:
@@ -616,7 +616,7 @@ def local_extreme_value(
     return _local_extreme_value_numba(vals, hw, 1 if want_max else 0)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _arg_local_extreme_numba(vals: np.ndarray, half_window: int, want_max: int) -> np.ndarray:
     """Numba 版本的已确认局部峰/谷定位。"""
     n = vals.shape[0]
@@ -641,7 +641,7 @@ def _arg_local_extreme_numba(vals: np.ndarray, half_window: int, want_max: int) 
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _local_extreme_value_numba(
     vals: np.ndarray, half_window: int, want_max: int
 ) -> np.ndarray:
@@ -673,7 +673,7 @@ def _local_extreme_value_numba(
 # =============================================================================
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _fractal_chan_3bar_marks(high: np.ndarray, low: np.ndarray, want_top: int) -> np.ndarray:
     """中心下标 ``j`` 上是否形成分型（严格不等）；与 bar 1,2,3 = j-1,j,j+1 对应。"""
     n = high.shape[0]
@@ -696,7 +696,7 @@ def _fractal_chan_3bar_marks(high: np.ndarray, low: np.ndarray, want_top: int) -
     return marks
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _fractal_chan_last_from_marks(
     high: np.ndarray,
     low: np.ndarray,
@@ -830,7 +830,7 @@ def maxamp_local_extreme_value(
 # =============================================================================
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _roll_cov_numba(xvals: np.ndarray, yvals: np.ndarray, window: int, ddof: int) -> np.ndarray:
     n = xvals.shape[0]
     out = np.empty(n, dtype=np.float32)
@@ -865,7 +865,7 @@ def _roll_cov_numba(xvals: np.ndarray, yvals: np.ndarray, window: int, ddof: int
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _roll_corr_numba(xvals: np.ndarray, yvals: np.ndarray, window: int) -> np.ndarray:
     n = xvals.shape[0]
     out = np.empty(n, dtype=np.float32)
@@ -945,7 +945,7 @@ def roll_corr_fixed(
 # =============================================================================
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _roll_quantile_numba(vals: np.ndarray, window: int, q: float) -> np.ndarray:
     n = vals.shape[0]
     out = np.empty(n, dtype=np.float32)
@@ -1004,7 +1004,7 @@ def roll_quantile_fixed(
 # =============================================================================
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _ts_since_numba(cond: np.ndarray) -> np.ndarray:
     """距上一次 truthy（有限且非零）的 bar 数；首个事件前为 NaN。"""
     n = cond.shape[0]
@@ -1028,7 +1028,7 @@ def ts_since(cond: np.ndarray) -> np.ndarray:
     return _ts_since_numba(cond)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _ts_since_nth_numba(cond: np.ndarray, nth: int) -> np.ndarray:
     """距倒数第 nth 次 truthy 事件的 bar 数；nth=1 同 ``_ts_since_numba``。"""
     n = cond.shape[0]
@@ -1059,7 +1059,7 @@ def ts_since_nth(cond: np.ndarray, nth: int) -> np.ndarray:
     return _ts_since_nth_numba(cond, n_ev)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _ts_runlength_numba(vals: np.ndarray, direction: int) -> np.ndarray:
     """连续严格上行 / 下行 bar 数；NaN 位置输出 NaN 并重置计数。"""
     n = vals.shape[0]
@@ -1101,7 +1101,7 @@ def ts_runlength(vals: np.ndarray, direction: int) -> np.ndarray:
     return _ts_runlength_numba(vals, direction)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _ts_cross_numba(x: np.ndarray, y: np.ndarray, direction: int) -> np.ndarray:
     """上穿 (direction=1) / 下穿 (direction=-1) 事件；输出 0/1，缺失为 NaN。"""
     n = x.shape[0]
@@ -1135,7 +1135,7 @@ def ts_cross(x: np.ndarray, y: np.ndarray, direction: int) -> np.ndarray:
 # Event rolling: op 0=count, 1=rate, 2=any, 3=all (truthy = finite && != 0)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _ts_event_roll_numba(cond: np.ndarray, window: int, op: int) -> np.ndarray:
     n = cond.shape[0]
     out = np.empty(n, dtype=np.float32)
@@ -1169,7 +1169,7 @@ def _ts_event_roll_numba(cond: np.ndarray, window: int, op: int) -> np.ndarray:
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _ts_event_roll_dyn_numba(cond: np.ndarray, wvals: np.ndarray, op: int) -> np.ndarray:
     n = cond.shape[0]
     out = np.empty(n, dtype=np.float32)
@@ -1220,7 +1220,7 @@ def ts_event_roll_dyn(cond: np.ndarray, wvals: np.ndarray, op: int) -> np.ndarra
     return _ts_event_roll_dyn_numba(cond, wvals.astype(np.int64, copy=False), op)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _ts_streak_numba(cond: np.ndarray) -> np.ndarray:
     n = cond.shape[0]
     out = np.empty(n, dtype=np.float32)
@@ -1252,7 +1252,7 @@ def ts_streak(cond: np.ndarray) -> np.ndarray:
 # =============================================================================
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _arg_median_numba(vals: np.ndarray, window: int) -> np.ndarray:
     """返回窗口内值最接近中位数的 bar 距今数（0=当前）。
     若有多个相同距离，取最近（索引最大）的。"""
@@ -1314,7 +1314,7 @@ def arg_median_fixed(
 # =============================================================================
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _arg_nth_numba(vals: np.ndarray, window: int, n: int, ascending: bool, unique: bool = False) -> np.ndarray:
     """返回窗口内第 n 大 (ascending=False) 或第 n 小 (ascending=True) 的 bar 距今数。
     n >= 1；若有效值不足 n 个（unique=True 时为不足 n 个不同值），输出 NaN。
@@ -1410,7 +1410,7 @@ def arg_nth_fixed(
 # =============================================================================
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _roll_rankcorr_numba(xvals: np.ndarray, yvals: np.ndarray, window: int) -> np.ndarray:
     """与 C++ ``roll_rankcorr_fixed_impl`` 语义一致：
     每根 bar 收集窗口内 (x,y) 有效对，对 x、y 分别算平均秩（等分布 ``rank(method='average')``），
@@ -1510,7 +1510,7 @@ def roll_rankcorr_fixed(
 # =============================================================================
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _roll_mutual_info_lag_numba(
     close: np.ndarray,
     volume: np.ndarray,
@@ -1657,7 +1657,7 @@ def roll_mutual_info_lag_fixed(
 # =============================================================================
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _efficiency_ratio_segment(vals: np.ndarray, lo: int, i: int) -> float:
     """窗口 [lo, i] 内 Kaufman ER；无效时返回 NaN。"""
     first_valid = -1
@@ -1692,7 +1692,7 @@ def _efficiency_ratio_segment(vals: np.ndarray, lo: int, i: int) -> float:
     return net / total_path
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _roll_efficiency_ratio_numba(vals: np.ndarray, window: int) -> np.ndarray:
     """ER = |窗口首末价差| / 窗口内逐 bar 绝对变化之和；固定窗。"""
     n = vals.shape[0]
@@ -1711,7 +1711,7 @@ def _roll_efficiency_ratio_numba(vals: np.ndarray, window: int) -> np.ndarray:
     return out
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _roll_efficiency_ratio_dynamic_numba(vals: np.ndarray, wvals: np.ndarray) -> np.ndarray:
     """逐 bar 窗长的 Kaufman ER；``wvals[i]`` 为 bar i 处回看长度（≥2）。"""
     n = vals.shape[0]
@@ -1763,7 +1763,7 @@ def roll_efficiency_ratio_dynamic(vals: np.ndarray, wvals: np.ndarray) -> np.nda
 # =============================================================================
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _wick_efficiency_numba(
     open_: np.ndarray,
     high: np.ndarray,
@@ -1942,7 +1942,7 @@ def roll_kline_geometry_fixed(
     return roll_kline_geometry(o, h, l, c, int(window), eps=eps)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _roll_permutation_entropy_numba(
     vals: np.ndarray, window: int, order: int
 ) -> np.ndarray:
@@ -2228,7 +2228,7 @@ def vpin_classification_id(name: str) -> int:
     raise ValueError('classification must be "tick" or "lee_ready"')
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _vpin_classify_volume(
     price: float,
     price_prev: float,
@@ -2259,7 +2259,7 @@ def _vpin_classify_volume(
     return half, half, last_sign
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _vpin_push_imbalance(
     imb_buf: np.ndarray,
     n_in_buf: int,
@@ -2286,7 +2286,7 @@ def _vpin_push_imbalance(
     return w
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _vpin_buf_mean(
     imb_buf: np.ndarray, n_in_buf: int, window: int, min_buckets: int
 ) -> float:
@@ -2304,7 +2304,7 @@ def _vpin_buf_mean(
     return s / float(n_in_buf)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _vpin_add_to_bucket(
     rem_buy: float,
     rem_sell: float,
@@ -2355,7 +2355,7 @@ def _vpin_add_to_bucket(
     return rem_buy, rem_sell, bucket_buy, bucket_sell, bucket_fill, n_in_buf
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _volume_clock_vpin_numba(
     price: np.ndarray,
     volume: np.ndarray,
@@ -2451,7 +2451,7 @@ def volume_clock_vpin_fixed(
 # side_high: 1=high tail, 0=low tail (quantile mode only)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _crowd_sorted_quantile(buf: np.ndarray, c: int, q: float) -> float:
     if c <= 0:
         return np.nan
@@ -2469,7 +2469,7 @@ def _crowd_sorted_quantile(buf: np.ndarray, c: int, q: float) -> float:
     return buf[lo_i] * (1.0 - frac) + buf[hi_i] * frac
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _crowd_avg_rank(vals: np.ndarray, c: int, ranks: np.ndarray) -> None:
     for k in range(c):
         vk = vals[k]
@@ -2484,7 +2484,7 @@ def _crowd_avg_rank(vals: np.ndarray, c: int, ranks: np.ndarray) -> None:
         ranks[k] = (2.0 * less + eq + 1) / 2.0
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _crowd_in_target_quantile(
     dim_val: float,
     dim_buf: np.ndarray,
@@ -2502,7 +2502,7 @@ def _crowd_in_target_quantile(
     return dim_val < thr
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _crowd_equal_freq_bucket(rank: float, n: int, n_buckets: int) -> int:
     b = int((rank - 1.0) / float(n) * float(n_buckets))
     if b < 0:
@@ -2512,7 +2512,7 @@ def _crowd_equal_freq_bucket(rank: float, n: int, n_buckets: int) -> int:
     return b
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _crowd_in_target_equal_freq(
     dim_val: float,
     dim_buf: np.ndarray,
@@ -2530,7 +2530,7 @@ def _crowd_in_target_equal_freq(
     return False
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _crowd_is_target(
     dim_val: float,
     dim_buf: np.ndarray,
@@ -2546,7 +2546,7 @@ def _crowd_is_target(
     return _crowd_in_target_equal_freq(dim_val, dim_buf, c, n_buckets, bucket_idx0)
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _crowd_mark_target(
     dim_buf: np.ndarray,
     c: int,
@@ -2576,7 +2576,7 @@ def _crowd_mark_target(
             in_target[k] = b == bucket_idx0
 
 
-@njit(cache=True)
+@njit(cache=True, nogil=True)
 def _roll_crowd_numba(
     dim: np.ndarray,
     attr: np.ndarray,
