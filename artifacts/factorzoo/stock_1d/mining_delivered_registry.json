@@ -926,5 +926,353 @@
       ]
     },
     "source": "submit"
+  },
+  "amt_ret_rank_diff": {
+    "name": "amt_ret_rank_diff",
+    "comment": "量价排名差因子：成交额排名 - 收盘价排名，截面秩化。经济含义：放量滞涨（成交额高于价格所对应的正常水平）预示后续负收益（负 IC）。RANK(LOG(amount)) 与 RANK(adj_close) 之差，本质是捕捉量价背离。2019-2023 train IC=-1.5%, ICIR=-0.21；2024-2025 val IC=-1.3%, ICIR=-0.20；2026 holdout IC=-0.58%, ICIR=-0.072。单调性优异（train nw_t_rho=-6.28），三个区间 IC 方向一致，为稳健的负向 alpha。",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/amt_ret_rank_diff.dsl",
+    "ingest_config": {
+      "train_start": "2019-01-01",
+      "ingest_start": "2019-01-01",
+      "ingest_end": "2025-12-31",
+      "label_col": "label_1d_close_to_close"
+    },
+    "ingested_at": "2026-08-04T02:17:41.475731+00:00",
+    "ingest_metrics": {
+      "coverage": 1.0,
+      "ic": -0.014429872824346868,
+      "icir": -0.2074536256106453,
+      "rank_ic": -0.037803511402087285,
+      "n_days": 1699,
+      "cs_pearson_autocorr": 0.9525174935167219,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": 0.001005
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.001051
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.001114
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.001188
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.001273
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.00123
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.00083
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.000551
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.000277
+        },
+        {
+          "decile": 10,
+          "mean_label": -0.000477
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": -0.11119910107549895,
+        "mean_ls": -0.0014978274640621168,
+        "ir_ls": -0.2123555509824518,
+        "ir_ls_annual": -3.3710398645419923,
+        "mls": 0.3748566026267413,
+        "nw_t_rho": -6.874929175395378,
+        "nw_t_ls": -8.49243721440847,
+        "nw_se_rho": 0.016174581328556578,
+        "nw_se_ls": 0.00017637192083338186,
+        "n_days_rho": 1699,
+        "n_days_ls": 1699,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_1d_close_to_close",
+      "skew": 0.3191501915260445,
+      "kurt": 0.266055459936116,
+      "eval_start": "2019-01-01",
+      "eval_end": "2025-12-31",
+      "finite_ratio": 0.9124108775976992
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 4,
+      "n_factors": 5,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.33217436986395377,
+      "top_neighbors": [
+        {
+          "factor_id": "amihud_log_30d_winsor",
+          "name": "amihud_log_30d_winsor",
+          "cs_corr": -0.33217436986395377,
+          "expr": "amihud = DIVIDE(ABS($ret), ADD($amount, 1e-12))\namihud_win = CS_WINSORIZE(amihud, 0.01, 0.99)\namihud_log = LOG(ADD(amihud_win, 1e-12))\namihud_smooth = TS_MEAN(amihud_log, 30)\nCS_ZSCORE(amihud_smooth)"
+        },
+        {
+          "factor_id": "mom_vol",
+          "name": "mom_vol",
+          "cs_corr": 0.13944542908090923,
+          "expr": "mom = DELTA($adj_close, 5)\nvol = TS_STD($adj_close, 20)\nDIVIDE(mom, ADD(vol, 1e-8))"
+        },
+        {
+          "factor_id": "ma20_dev",
+          "name": "ma20_dev",
+          "cs_corr": 0.024131207858350948,
+          "expr": "SUBTRACT($adj_close, TS_MEAN($adj_close, 20))"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "pv_diverg_ema_vol": {
+    "name": "pv_diverg_ema_vol",
+    "comment": "量价背离因子（EMA 量能版）：5日收益减去 EMA(10) 量能 5 日变化率，截面秩。经济含义：价涨量缩（收益强而量能萎缩）的股票往往处于缩量上涨的健康状态，未来 1 日（close-to-close）收益相对占优；反之放量滞涨预示抛压。正 IC 方向，train/val/holdout 三区间同号存活，月度正占比 0.72+，截面自相关 0.88。",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/pv_diverg_ema_vol.dsl",
+    "ingest_config": {
+      "train_start": "2019-01-01",
+      "ingest_start": "2019-01-01",
+      "ingest_end": "2025-12-31",
+      "label_col": "label_1d_close_to_close"
+    },
+    "ingested_at": "2026-08-04T04:26:30.041193+00:00",
+    "ingest_metrics": {
+      "coverage": 0.9986842188867431,
+      "ic": 0.009012032800677557,
+      "icir": 0.11787188846350044,
+      "rank_ic": 0.02669818795163995,
+      "n_days": 1699,
+      "cs_pearson_autocorr": 0.8816738222891457,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": -0.000243
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.000738
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.000824
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.000959
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.000934
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.000975
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.000938
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.000941
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.000899
+        },
+        {
+          "decile": 10,
+          "mean_label": 0.000951
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": 0.06357037116307275,
+        "mean_ls": 0.0012234739320327315,
+        "ir_ls": 0.1401081909437075,
+        "ir_ls_annual": 2.224148579281213,
+        "mls": 0.14138995070672764,
+        "nw_t_rho": 4.345902596717849,
+        "nw_t_ls": 5.61671295694364,
+        "nw_se_rho": 0.014627656683121,
+        "nw_se_ls": 0.0002178273914674982,
+        "n_days_rho": 1699,
+        "n_days_ls": 1699,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_1d_close_to_close",
+      "skew": -8.55351491088557e-11,
+      "kurt": -1.2000001117072772,
+      "eval_start": "2019-01-01",
+      "eval_end": "2025-12-31",
+      "finite_ratio": 0.9112633977005518
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 5,
+      "n_factors": 6,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.3828203956887212,
+      "top_neighbors": [
+        {
+          "factor_id": "mom_vol",
+          "name": "mom_vol",
+          "cs_corr": -0.3828203956887212,
+          "expr": "mom = DELTA($adj_close, 5)\nvol = TS_STD($adj_close, 20)\nDIVIDE(mom, ADD(vol, 1e-8))"
+        },
+        {
+          "factor_id": "amt_ret_rank_diff",
+          "name": "amt_ret_rank_diff",
+          "cs_corr": -0.18989283332418924,
+          "expr": "amt_rank = RANK(LOG($amount))\nret_rank = RANK($adj_close)\nSUBTRACT(amt_rank, ret_rank)"
+        },
+        {
+          "factor_id": "ma20_dev",
+          "name": "ma20_dev",
+          "cs_corr": -0.04782332838370398,
+          "expr": "SUBTRACT($adj_close, TS_MEAN($adj_close, 20))"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "cov_ret_vol_neg20": {
+    "name": "cov_ret_vol_neg20",
+    "comment": "量价协动取负：20日窗口内日收益与成交量的滚动协方差（正值=价量同向放量上涨/下跌，负值=价量背离）。取负后因子=价量背离强度。经济逻辑：价量同向波动（尤其放量上涨）往往是短期情绪高潮，1日持有期后续收益偏低；价量背离（缩量上涨/放量下跌）代表筹码稳定或抛压释放，后续相对抗跌。全区间IC 0.0075、ICIR 0.11、自相关0.91，train月度正IC占比0.80、val 0.79、holdout 2026 IC 0.005/ICIR 0.053同号正向，穿越下跌市。",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/cov_ret_vol_neg20.dsl",
+    "ingest_config": {
+      "train_start": "2019-01-01",
+      "ingest_start": "2019-01-01",
+      "ingest_end": "2025-12-31",
+      "label_col": "label_1d_close_to_close"
+    },
+    "ingested_at": "2026-08-04T04:58:00.631787+00:00",
+    "ingest_metrics": {
+      "coverage": 0.9994772924344596,
+      "ic": 0.011756698935567545,
+      "icir": 0.15311157142050885,
+      "rank_ic": 0.03581231033518512,
+      "n_days": 1699,
+      "cs_pearson_autocorr": 0.9132730204490116,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": -0.000327
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.000287
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.00065
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.000805
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.000891
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.001116
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.001249
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.001429
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.001297
+        },
+        {
+          "decile": 10,
+          "mean_label": 0.000567
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": 0.08269035261383702,
+        "mean_ls": 0.0008705191975711962,
+        "ir_ls": 0.11994513912467104,
+        "ir_ls_annual": 1.9040700545695388,
+        "mls": 0.15744822421380306,
+        "nw_t_rho": 5.4685063387223725,
+        "nw_t_ls": 5.045374948134376,
+        "nw_se_rho": 0.015121195348775306,
+        "nw_se_ls": 0.00017253805842380206,
+        "n_days_rho": 1699,
+        "n_days_ls": 1699,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_1d_close_to_close",
+      "skew": 1.1173496705217932e-10,
+      "kurt": -1.2000001116204395,
+      "eval_start": "2019-01-01",
+      "eval_end": "2025-12-31",
+      "finite_ratio": 0.9119552031827606
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 6,
+      "n_factors": 7,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.2919130153851095,
+      "top_neighbors": [
+        {
+          "factor_id": "amt_ret_rank_diff",
+          "name": "amt_ret_rank_diff",
+          "cs_corr": -0.2919130153851095,
+          "expr": "amt_rank = RANK(LOG($amount))\nret_rank = RANK($adj_close)\nSUBTRACT(amt_rank, ret_rank)"
+        },
+        {
+          "factor_id": "amihud_log_30d_winsor",
+          "name": "amihud_log_30d_winsor",
+          "cs_corr": 0.2402985046259986,
+          "expr": "amihud = DIVIDE(ABS($ret), ADD($amount, 1e-12))\namihud_win = CS_WINSORIZE(amihud, 0.01, 0.99)\namihud_log = LOG(ADD(amihud_win, 1e-12))\namihud_smooth = TS_MEAN(amihud_log, 30)\nCS_ZSCORE(amihud_smooth)"
+        },
+        {
+          "factor_id": "mom_vol",
+          "name": "mom_vol",
+          "cs_corr": -0.1628398408682298,
+          "expr": "mom = DELTA($adj_close, 5)\nvol = TS_STD($adj_close, 20)\nDIVIDE(mom, ADD(vol, 1e-8))"
+        }
+      ]
+    },
+    "source": "submit"
   }
 }
