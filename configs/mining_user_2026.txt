@@ -1,0 +1,17 @@
+目标：挖掘 **2026 年仍有效、相对等权市场有超额** 的 A 股日频因子。
+
+日期切分（已配置）：
+- train: 2019–2023
+- val: 2024–2025（中期泛化，勿过拟合这一段）
+- holdout: 2026（最终 OOS；**submit 前必须 eval_on_holdout_set 达标**）
+
+硬性要求（缺一不可才 submit）：
+1. train 上 IC/ICIR/月度稳健性达标（见 system prompt）
+2. val 上 IC 与 train **同号**，无灾难性衰减
+3. **holdout 2026**：`|IC|≥0.005`、`|ICIR|≥0.05`、`mean_ls` 与 IC **同号**（正 IC 时 LS>0，表示多空/头部相对等权有 alpha）
+4. 优先 **价量/秩化/波动** 类因子；**慎用 CHIP_***（极慢），除非 train+holdout 都明显更强
+
+工作方式：
+- 每轮并行 4–6 个 `eval_on_train_set`
+- 候选达标后：`eval_on_val_set` → **`eval_on_holdout_set`** → 仅 holdout 通过才 `submit_factor`
+- 禁止仅文字总结而不 submit；禁止跳过 holdout 直接 submit

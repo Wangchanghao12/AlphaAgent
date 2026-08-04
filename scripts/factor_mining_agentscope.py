@@ -53,6 +53,21 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--train-end", default="2020-12-31")
     p.add_argument("--val-start", default="2021-01-01")
     p.add_argument("--val-end", default="2023-12-31")
+    p.add_argument(
+        "--holdout-start",
+        default="2026-01-01",
+        help="OOS holdout 起始（如 2026；submit 强制复检）",
+    )
+    p.add_argument(
+        "--holdout-end",
+        default="2026-07-31",
+        help="OOS holdout 结束",
+    )
+    p.add_argument(
+        "--no-holdout",
+        action="store_true",
+        help="禁用 holdout 窗与 submit holdout 门槛",
+    )
     p.add_argument("--label-col", default=DEFAULT_LABEL_COL)
     p.add_argument(
         "--no-fundamentals",
@@ -149,6 +164,8 @@ def main() -> int:
             train_end=args.train_end,
             val_start=args.val_start,
             val_end=args.val_end,
+            holdout_start=None if args.no_holdout else args.holdout_start,
+            holdout_end=None if args.no_holdout else args.holdout_end,
             label_col=args.label_col,
             include_fundamentals=not args.no_fundamentals,
         ),

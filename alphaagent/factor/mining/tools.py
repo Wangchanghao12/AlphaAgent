@@ -14,7 +14,7 @@ from typing import Any
 
 
 
-from alphaagent.factor.mining.schemas import EvalTrainRequest, EvalValRequest
+from alphaagent.factor.mining.schemas import EvalHoldoutRequest, EvalTrainRequest, EvalValRequest
 
 from alphaagent.factor.mining.service import StockEvalService
 
@@ -136,7 +136,7 @@ _SUBMIT_PARAMETERS: dict[str, Any] = {
 
 
 
-TOOL_NAMES = ("eval_on_train_set", "eval_on_val_set", "submit_factor")
+TOOL_NAMES = ("eval_on_train_set", "eval_on_val_set", "eval_on_holdout_set", "submit_factor")
 
 
 
@@ -199,6 +199,22 @@ class FactorEvalTools:
                     "name": "eval_on_val_set",
 
                     "description": "验证集评估；须传 expected_sign（train IC 符号 1/-1），结果含 sign_check。",
+
+                    "parameters": _VAL_PARAMETERS,
+
+                },
+
+            },
+
+            {
+
+                "type": "function",
+
+                "function": {
+
+                    "name": "eval_on_holdout_set",
+
+                    "description": "2026 等 holdout OOS 评估；须传 expected_sign。submit 前必须 holdout 达标（IC+LS 跑赢等权）。",
 
                     "parameters": _VAL_PARAMETERS,
 
@@ -319,6 +335,34 @@ class FactorEvalTools:
             return self.service.eval_val(
 
                 EvalValRequest(
+
+                    session_id=self.session_id,
+
+                    multi_line_expr=expr,
+
+                    factor_name=factor_name,
+
+                    include_detail_tables=include_detail,
+
+                    label_quantile_n=int(label_quantile_n),
+
+                    expected_sign=expected_sign,
+
+                )
+
+            )
+
+        if name == "eval_on_holdout_set":
+
+            expected_sign = arguments.get("expected_sign")
+
+            if expected_sign not in (None, 1, -1):
+
+                return {"ok": False, "error": "expected_sign_must_be_1_or_-1", "error_type": "ToolArgumentsError"}
+
+            return self.service.eval_holdout(
+
+                EvalHoldoutRequest(
 
                     session_id=self.session_id,
 

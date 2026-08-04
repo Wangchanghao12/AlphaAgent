@@ -17,6 +17,9 @@ class StockEvalContext:
     train_end: str = "2021-12-31"
     val_start: str = "2022-01-01"
     val_end: str = "2023-12-31"
+    holdout_start: str | None = None
+    """最终 OOS 窗（如 2026）；submit 时强制复检。None 表示不启用。"""
+    holdout_end: str | None = None
     label_col: str = DEFAULT_LABEL_COL
     include_fundamentals: bool = True
     """是否载入基本面列（``funda_*``）。挖价量因子时可关闭以省内存。"""
@@ -26,11 +29,17 @@ class StockEvalContext:
             return self.train_start, self.train_end
         if split == "val":
             return self.val_start, self.val_end
+        if split == "holdout":
+            if not self.holdout_start or not self.holdout_end:
+                raise ValueError("holdout 未配置 holdout_start/holdout_end")
+            return self.holdout_start, self.holdout_end
         raise ValueError(f"未知 split: {split!r}")
 
     def coverage_range(self) -> tuple[str, str]:
-        """train ∪ val 日期并集。"""
-        return (
-            min(self.train_start, self.val_start),
-            max(self.train_end, self.val_end),
-        )
+        """train ∪ val ∪ holdout 日期并集。"""
+        starts = [self.train_start, self.val_start]
+        ends = [self.train_end, self.val_end]
+        if self.holdout_start and self.holdout_end:
+            starts.append(self.holdout_start)
+            ends.append(self.holdout_end)
+        return min(starts), max(ends)

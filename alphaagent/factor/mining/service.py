@@ -10,6 +10,7 @@ from alphaagent.factor.mining.context import StockEvalContext
 from alphaagent.factor.mining.env_settings import resolve_max_parallel_eval
 from alphaagent.factor.mining.response import format_eval_response
 from alphaagent.factor.mining.schemas import (
+    EvalHoldoutRequest,
     EvalTrainRequest,
     EvalValRequest,
     SessionCreateRequest,
@@ -39,6 +40,8 @@ class StockEvalService:
             train_end=req.train_end,
             val_start=req.val_start,
             val_end=req.val_end,
+            holdout_start=req.holdout_start,
+            holdout_end=req.holdout_end,
             label_col=req.label_col,
             include_fundamentals=req.include_fundamentals,
         )
@@ -91,6 +94,25 @@ class StockEvalService:
             return self._run_one(
                 req.session_id,
                 split="val",
+                multi_line_expr=req.multi_line_expr,
+                factor_name=req.factor_name,
+                include_detail_tables=req.include_detail_tables,
+                label_quantile_n=req.label_quantile_n,
+                expected_sign=req.expected_sign,
+            )
+
+    def eval_holdout(self, req: EvalHoldoutRequest) -> dict[str, Any]:
+        with self._eval_semaphore:
+            session = self.sessions.get(req.session_id)
+            if not session.ctx.holdout_start or not session.ctx.holdout_end:
+                return {
+                    "ok": False,
+                    "error": "holdout 未配置（需 --holdout-start/--holdout-end）",
+                    "error_type": "HoldoutNotConfigured",
+                }
+            return self._run_one(
+                req.session_id,
+                split="holdout",
                 multi_line_expr=req.multi_line_expr,
                 factor_name=req.factor_name,
                 include_detail_tables=req.include_detail_tables,

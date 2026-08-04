@@ -147,19 +147,22 @@ def evaluate_factor_on_split(
 ) -> dict[str, Any]:
     """在 train/val 窗上评估多行 DSL，返回未格式化的原始结果 dict。"""
     ctx = session.ctx
-    panel, start, end = session.get_split_panel(split)
-    date_range = {"start": start, "end": end}
+    metrics_start, metrics_end = ctx.split_range(split)
+    # 指标只在 split 窗内统计；DSL 在 coverage_start~metrics_end 上求值以保留 TS/CHIP warmup
+    cov_start, _ = ctx.coverage_range()
+    panel_eval = slice_panel(session.panel, start=cov_start, end=metrics_end)
+    date_range = {"start": metrics_start, "end": metrics_end}
 
-    if panel.empty:
+    if panel_eval.empty:
         return {
             "ok": False,
-            "error": "日期窗内无 panel 数据",
+            "error": "评估窗内无 panel 数据",
             "error_type": "EmptyData",
             "split": split,
             "date_range": date_range,
         }
 
-    if ctx.label_col not in panel.columns:
+    if ctx.label_col not in panel_eval.columns:
         return {
             "ok": False,
             "error": f"panel 缺少标签列: {ctx.label_col}",
@@ -173,7 +176,7 @@ def evaluate_factor_on_split(
 
     try:
         t_eval = time.perf_counter()
-        out = eval_factor(multi_line_expr, panel)
+        out = eval_factor(multi_line_expr, panel_eval)
         timing["eval_ms"] = (time.perf_counter() - t_eval) * 1000
     except MultiLineFactorEvalError as e:
         return {
@@ -202,28 +205,34 @@ def evaluate_factor_on_split(
         }
 
     t_align = time.perf_counter()
-    values = align_series_to_panel(out, panel)
-    factor_series = pd.Series(values, index=panel.index, name=factor_name, dtype=np.float32)
-    label_series = panel[ctx.label_col]
+    values = align_series_to_panel(out, panel_eval)
+    factor_series = pd.Series(values, index=panel_eval.index, name=factor_name, dtype=np.float32)
+    label_series = panel_eval[ctx.label_col]
     timing["align_ms"] = (time.perf_counter() - t_align) * 1000
 
     t_metrics = time.perf_counter()
-    daily_ic = cross_sectional_ic(factor_series, label_series, min_pairs=5)
-    daily_rank_ic = cross_sectional_rank_ic(factor_series, label_series, min_pairs=5)
-    summary = _build_summary(factor_series, label_series, values, daily_ic, daily_rank_ic)
+    metrics_panel = slice_panel(panel_eval, start=metrics_start, end=metrics_end)
+    mpos = panel_eval.index.isin(metrics_panel.index)
+    factor_m = factor_series.loc[mpos]
+    label_m = label_series.loc[mpos]
+    daily_ic = cross_sectional_ic(factor_m, label_m, min_pairs=5)
+    daily_rank_ic = cross_sectional_rank_ic(factor_m, label_m, min_pairs=5)
+    summary = _build_summary(
+        factor_m, label_m, factor_m.to_numpy(dtype=float, copy=False), daily_ic, daily_rank_ic
+    )
     monthly_rob = monthly_ic_robustness(daily_ic)
 
     buckets: list[dict[str, Any]] = []
     if label_quantile_n >= 2:
         buckets = label_quantile_buckets(
-            factor_series.to_numpy(dtype=float, copy=False),
-            label_series.to_numpy(dtype=float, copy=False),
+            factor_m.to_numpy(dtype=float, copy=False),
+            label_m.to_numpy(dtype=float, copy=False),
             n_quantiles=label_quantile_n,
         )
 
     detail: dict[str, Any] = {}
     if include_detail_tables:
-        detail = _detail_tables(factor_series, label_series, daily_ic, daily_rank_ic)
+        detail = _detail_tables(factor_m, label_m, daily_ic, daily_rank_ic)
 
     timing["metrics_ms"] = (time.perf_counter() - t_metrics) * 1000
     timing["total_ms"] = (time.perf_counter() - t0) * 1000

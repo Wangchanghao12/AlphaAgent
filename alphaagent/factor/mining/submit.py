@@ -6,9 +6,12 @@ import re
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from alphaagent.factor.types import IngestPolicy
 from alphaagent.factor.ingest import ingest_factor, load_panel_for_zoo
 from alphaagent.factor.types import IngestResult
+from alphaagent.factor.eval import evaluate_factor_on_split
 from alphaagent.factor.mining.service import StockEvalService
 from alphaagent.factor.zoo import DEFAULT_FACTORLIB_ROOT, FactorZoo
 from alphaagent.factor.zoo.realign import panel_paths_match, realign_factorlib_to_panel
@@ -21,6 +24,8 @@ def slug_factor_id(name: str) -> str:
 
 
 CS_PEARSON_AUTOCORR_MIN = 0.6
+HOLDOUT_MIN_ABS_IC = 0.005
+HOLDOUT_MIN_ABS_ICIR = 0.05
 
 
 def check_delivery_metrics(metrics: dict[str, Any]) -> tuple[bool, list[str]]:
@@ -41,6 +46,27 @@ def check_delivery_metrics(metrics: dict[str, Any]) -> tuple[bool, list[str]]:
     cs_auto = metrics.get("cs_pearson_autocorr")
     if cs_auto is None or float(cs_auto) <= CS_PEARSON_AUTOCORR_MIN:
         reasons.append("cs_pearson_autocorr")
+    return len(reasons) == 0, reasons
+
+
+def check_holdout_metrics(summary: dict[str, Any]) -> tuple[bool, list[str]]:
+    """holdout 窗（如 2026）：IC 须达标且 LS 与 IC 同向（相对等权有超额）。"""
+    reasons: list[str] = []
+    ic = summary.get("ic")
+    if ic is None or abs(float(ic)) < HOLDOUT_MIN_ABS_IC:
+        reasons.append("holdout_ic")
+    icir = summary.get("icir")
+    if icir is None or abs(float(icir)) < HOLDOUT_MIN_ABS_ICIR:
+        reasons.append("holdout_icir")
+    mls = summary.get("mls_fmb") or {}
+    mean_ls = mls.get("mean_ls")
+    if ic is not None and mean_ls is not None:
+        ic_f, ls_f = float(ic), float(mean_ls)
+        if np.isfinite(ic_f) and np.isfinite(ls_f):
+            if ic_f > 0 and ls_f <= 0:
+                reasons.append("holdout_ls_vs_market")
+            if ic_f < 0 and ls_f >= 0:
+                reasons.append("holdout_ls_vs_market")
     return len(reasons) == 0, reasons
 
 
@@ -108,6 +134,39 @@ class FactorSubmitService:
             }
 
         ctx = session.ctx
+        holdout_payload: dict[str, Any] | None = None
+        if ctx.holdout_start and ctx.holdout_end:
+            holdout_raw = evaluate_factor_on_split(
+                session,
+                split="holdout",
+                multi_line_expr=expr,
+                factor_name=factor_id,
+            )
+            if not holdout_raw.get("ok"):
+                return {
+                    "ok": False,
+                    "stored": False,
+                    "error": holdout_raw.get("error", "holdout_eval_failed"),
+                    "error_type": holdout_raw.get("error_type", "HoldoutEvalError"),
+                    "holdout_check": {"passed": False, "raw": holdout_raw},
+                }
+            holdout_summary = holdout_raw.get("summary") or {}
+            holdout_ok, holdout_reasons = check_holdout_metrics(holdout_summary)
+            holdout_payload = {
+                "date_range": holdout_raw.get("date_range"),
+                "summary": holdout_summary,
+                "passed": holdout_ok,
+                "fail_reasons": holdout_reasons,
+            }
+            if not holdout_ok:
+                return {
+                    "ok": False,
+                    "stored": False,
+                    "error": f"holdout_check_failed:{','.join(holdout_reasons)}",
+                    "error_type": "HoldoutCheckFailed",
+                    "holdout_check": holdout_payload,
+                }
+
         try:
             zoo = FactorZoo.open(self.factorlib_path)
         except FileNotFoundError as e:
@@ -207,6 +266,7 @@ class FactorSubmitService:
             "metrics": result.metrics,
             "delivery_check": {"passed": delivery_ok, "fail_reasons": delivery_reasons},
             "similarity": result.similarity,
+            "holdout_check": holdout_payload,
             "skipped_reason": result.skipped_reason,
             "rolled_back": rolled_back,
         }

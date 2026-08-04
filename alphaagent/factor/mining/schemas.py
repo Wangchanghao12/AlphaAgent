@@ -14,6 +14,8 @@ class SessionCreateRequest:
     train_end: str = "2021-12-31"
     val_start: str = "2022-01-01"
     val_end: str = "2023-12-31"
+    holdout_start: str | None = None
+    holdout_end: str | None = None
     label_col: str = DEFAULT_LABEL_COL
     include_fundamentals: bool = True
 
@@ -37,6 +39,16 @@ class EvalTrainRequest:
 
 @dataclass
 class EvalValRequest:
+    session_id: str
+    multi_line_expr: str
+    factor_name: str = "expr"
+    include_detail_tables: bool = False
+    label_quantile_n: int = 10
+    expected_sign: int | None = None
+
+
+@dataclass
+class EvalHoldoutRequest:
     session_id: str
     multi_line_expr: str
     factor_name: str = "expr"

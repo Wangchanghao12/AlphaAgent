@@ -119,6 +119,8 @@ async def run_factor_mining_agentscope(
             train_end=ctx.train_end,
             val_start=ctx.val_start,
             val_end=ctx.val_end,
+            holdout_start=ctx.holdout_start,
+            holdout_end=ctx.holdout_end,
             label_col=ctx.label_col,
             include_fundamentals=ctx.include_fundamentals,
         )

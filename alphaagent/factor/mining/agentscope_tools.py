@@ -79,9 +79,36 @@ def build_factor_eval_toolkit(tools: FactorEvalTools, *, max_workers: int = 4) -
         )
         return ToolChunk(content=[TextBlock(text=tools.result_to_content(result))])
 
+    async def eval_on_holdout_set(
+        multi_line_expr: str,
+        factor_name: str = "expr",
+        include_detail_tables: bool = False,
+        label_quantile_n: int = 10,
+        expected_sign: int | None = None,
+    ) -> ToolChunk:
+        """holdout OOS（如 2026）评估；submit 前须 holdout 达标。"""
+        loop = __import__("asyncio").get_running_loop()
+        args: dict[str, Any] = {
+            "multi_line_expr": multi_line_expr,
+            "factor_name": factor_name,
+            "include_detail_tables": include_detail_tables,
+            "label_quantile_n": label_quantile_n,
+        }
+        if expected_sign is not None:
+            args["expected_sign"] = expected_sign
+        result, _elapsed = await loop.run_in_executor(
+            _executor(max_workers),
+            _dispatch_sync,
+            tools,
+            "eval_on_holdout_set",
+            args,
+        )
+        return ToolChunk(content=[TextBlock(text=tools.result_to_content(result))])
+
     func_tools: list[FunctionTool] = [
         FunctionTool(eval_on_train_set, name="eval_on_train_set", is_read_only=True),
         FunctionTool(eval_on_val_set, name="eval_on_val_set", is_read_only=True),
+        FunctionTool(eval_on_holdout_set, name="eval_on_holdout_set", is_read_only=True),
     ]
 
     if tools.submit_service is not None:

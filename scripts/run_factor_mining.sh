@@ -42,7 +42,7 @@ fi
 : "${OPENAI_API_KEY:?请先 export OPENAI_API_KEY（或 AX_LLM_API_KEY / LITELLM_API_KEY）}"
 
 # 可选并行评估
-export MAX_PARALLEL_EVAL="${MAX_PARALLEL_EVAL:-4}"
+export MAX_PARALLEL_EVAL="${MAX_PARALLEL_EVAL:-8}"
 
 PANEL="${PANEL:-artifacts/panel/panel_1d.parquet}"
 LABEL_COL="${LABEL_COL:-label_10d_close_to_close}"
