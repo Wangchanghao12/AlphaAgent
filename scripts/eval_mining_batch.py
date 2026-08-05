@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,7 +26,7 @@ sys.path.insert(0, str(ROOT))
 
 from alphaagent.core.paths import PANEL_PATH  # noqa: E402
 from alphaagent.data.panel import load_panel  # noqa: E402
-from alphaagent.factor.eval import evaluate_factor  # noqa: E402
+from alphaagent.factor.eval import evaluate_factor_windows  # noqa: E402
 from alphaagent.factor.mining.registry_io import load_mining_registry  # noqa: E402
 from alphaagent.factor.mining.submit import check_holdout_metrics  # noqa: E402
 from alphaagent.factor.types import DEFAULT_LABEL_COL  # noqa: E402
@@ -59,6 +61,12 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--min-holdout-ic", type=float, default=0.005, help="holdout 最小 |IC|（默认 0.005）")
     p.add_argument("--min-holdout-icir", type=float, default=0.05, help="holdout 最小 |ICIR|（默认 0.05）")
     p.add_argument("--panel-cache", type=Path, default=None, help="预加载 panel 的 pickle（加速多次评测）")
+    p.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="并行进程数（默认=min(cpu核心, 8)；传 1 则串行。CPU 密集任务建议=核心数）",
+    )
     return p.parse_args()
 
 
@@ -101,6 +109,64 @@ def _pct(v: float | None, width: int = 7) -> str:
     if v is None:
         return "NA".rjust(width)
     return f"{float(v)*100:.1f}%".rjust(width)
+
+
+# ---------------------------------------------------------------------------
+# 多进程 worker：每个子进程通过模块全局量继承 panel 和参数（fork，COW 共享）
+# ---------------------------------------------------------------------------
+_PANEL = None  # pd.DataFrame，worker 共享（fork 后由子进程 COW 继承）
+_WARGS: argparse.Namespace | None = None
+
+
+def _evaluate_one(item: tuple[str, dict]) -> tuple[str, str | dict]:
+    """单个因子的求值任务，在子进程里执行。返回 ("row", row_dict) 或 ("error", msg)。"""
+    factor_id, entry = item
+    args = _WARGS
+    panel = _PANEL
+    expr_file = entry.get("expression_file", "")
+    if not expr_file:
+        return ("error", f"{factor_id}: expression_file 为空")
+    dsl_path = _resolve(ROOT, expr_file)
+    if not dsl_path.is_file():
+        return ("error", f"{factor_id}: 找不到表达式文件 {dsl_path}")
+    expr = dsl_path.read_text(encoding="utf-8").strip()
+    if not expr:
+        return ("error", f"{factor_id}: 空表达式")
+    try:
+        win_metrics = evaluate_factor_windows(
+            expr, panel,
+            {
+                "holdout": (args.holdout_start, args.holdout_end),
+                "val": (args.val_start, args.val_end),
+                "train": (args.train_start, args.train_end),
+            },
+            label_col=args.label_col,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ("error", f"{factor_id}: 求值失败 ({type(exc).__name__}: {exc})")
+    ho_ok, ho_reason = _pass_thresholds(
+        win_metrics["holdout"], args.min_holdout_ic, args.min_holdout_icir,
+    )
+    ho = win_metrics["holdout"]
+    val = win_metrics["val"]
+    train = win_metrics["train"]
+    row = {
+        "factor_id": factor_id,
+        "name": entry.get("name", factor_id),
+        "source": entry.get("source", "?"),
+        "train_ic": train.get("ic"),
+        "train_icir": train.get("icir"),
+        "train_coverage": train.get("coverage"),
+        "val_ic": val.get("ic"),
+        "val_icir": val.get("icir"),
+        "val_coverage": val.get("coverage"),
+        "ho_ic": ho.get("ic"),
+        "ho_icir": ho.get("icir"),
+        "ho_coverage": ho.get("coverage"),
+        "ho_pass": ho_ok,
+        "ho_reason": ho_reason,
+    }
+    return ("row", row)
 
 
 def main() -> int:
@@ -153,75 +219,36 @@ def main() -> int:
     rows: list[dict] = []
     errors: list[str] = []
 
-    for factor_id, entry in selected:
-        expr_file = entry.get("expression_file", "")
-        if not expr_file:
-            errors.append(f"{factor_id}: expression_file 为空")
-            continue
-        dsl_path = _resolve(ROOT, expr_file)
-        if not dsl_path.is_file():
-            errors.append(f"{factor_id}: 找不到表达式文件 {dsl_path}")
-            continue
-        expr = dsl_path.read_text(encoding="utf-8").strip()
-        if not expr:
-            errors.append(f"{factor_id}: 空表达式")
-            continue
+    workers = args.workers
+    if workers is None:
+        workers = min(os.cpu_count() or 1, 8)
+    use_parallel = workers >= 2 and len(selected) >= 2
 
-        # --- holdout ---
-        try:
-            ho_metrics = evaluate_factor(
-                expr, panel,
-                label_col=args.label_col,
-                start=args.holdout_start, end=args.holdout_end,
-            )
-        except Exception as exc:  # noqa: BLE001 — 单个因子失败不中断整批
-            errors.append(f"{factor_id}: holdout 求值失败 ({type(exc).__name__}: {exc})")
-            continue
-        ho_ok, ho_reason = _pass_thresholds(
-            ho_metrics, args.min_holdout_ic, args.min_holdout_icir,
-        )
-        ho_summary = ho_metrics
-
-        # --- val ---
-        try:
-            val_metrics = evaluate_factor(
-                expr, panel,
-                label_col=args.label_col,
-                start=args.val_start, end=args.val_end,
-            )
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"{factor_id}: val 求值失败 ({type(exc).__name__}: {exc})")
-            continue
-        val_summary = val_metrics
-
-        # --- train ---
-        try:
-            train_metrics = evaluate_factor(
-                expr, panel,
-                label_col=args.label_col,
-                start=args.train_start, end=args.train_end,
-            )
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"{factor_id}: train 求值失败 ({type(exc).__name__}: {exc})")
-            continue
-        train_summary = train_metrics
-
-        rows.append({
-            "factor_id": factor_id,
-            "name": entry.get("name", factor_id),
-            "source": entry.get("source", "?"),
-            "train_ic": train_summary.get("ic"),
-            "train_icir": train_summary.get("icir"),
-            "train_coverage": train_summary.get("coverage"),
-            "val_ic": val_summary.get("ic"),
-            "val_icir": val_summary.get("icir"),
-            "val_coverage": val_summary.get("coverage"),
-            "ho_ic": ho_summary.get("ic"),
-            "ho_icir": ho_summary.get("icir"),
-            "ho_coverage": ho_summary.get("coverage"),
-            "ho_pass": ho_ok,
-            "ho_reason": ho_reason,
-        })
+    if use_parallel:
+        # fork 下子进程继承模块全局 _PANEL/_WARGS（COW 共享内存，零序列化开销）
+        global _PANEL, _WARGS
+        _PANEL = panel
+        _WARGS = args
+        res_by_id: dict[str, tuple[str, str | dict]] = {}
+        t_par = time.perf_counter()
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            futs = {ex.submit(_evaluate_one, it): it[0] for it in selected}
+            for fut in as_completed(futs):
+                res_by_id[futs[fut]] = fut.result()
+        for factor_id, _entry in selected:
+            status, payload = res_by_id[factor_id]
+            if status == "row":
+                rows.append(payload)
+            else:
+                errors.append(payload)
+        print(f"并行求值 {len(selected)} 个因子 x{workers} 进程 ({time.perf_counter()-t_par:.1f}s)")
+    else:
+        for factor_id, entry in selected:
+            status, payload = _evaluate_one((factor_id, entry))
+            if status == "row":
+                rows.append(payload)
+            else:
+                errors.append(payload)
 
     # --- 打印表格 ---
     sep = "-" * 130

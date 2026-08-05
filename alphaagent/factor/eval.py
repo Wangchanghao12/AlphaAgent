@@ -30,23 +30,27 @@ from alphaagent.factor.metrics import evaluate_on_panel
 from alphaagent.factor.types import DEFAULT_LABEL_COL
 
 
-def evaluate_factor(
-    expr: str,
-    panel: pd.DataFrame,
-    *,
-    label_col: str = DEFAULT_LABEL_COL,
-    start: str | None = None,
-    end: str | None = None,
-    min_pairs: int = 5,
-) -> dict[str, Any]:
-    """在全量 panel 上求值 DSL，再按日期窗计算 IC/ICIR/RANKIC/MLS 等指标。"""
+def _eval_values(expr: str, panel: pd.DataFrame, *, label_col: str) -> np.ndarray:
+    """求值 DSL 并对齐到全量 panel，返回对齐后的因子值数组。"""
     panel_full = panel.sort_index()
     if label_col not in panel_full.columns:
         raise KeyError(f"panel 缺少标签列: {label_col}")
     out = eval_factor(expr, panel_full)
     if not isinstance(out, pd.Series):
         raise TypeError(f"因子输出须为 Series，得到 {type(out)!r}")
-    values = align_series_to_panel(out, panel_full)
+    return align_series_to_panel(out, panel_full)
+
+
+def _window_metrics(
+    values: np.ndarray,
+    panel_full: pd.DataFrame,
+    *,
+    label_col: str,
+    start: str | None,
+    end: str | None,
+    min_pairs: int,
+) -> dict[str, Any]:
+    """在给定日期窗内对已对齐的因子值计算 IC/ICIR/RANKIC 等指标。"""
     eval_panel = slice_panel(panel_full, start=start, end=end)
     if eval_panel.empty:
         raise ValueError(f"评估切片为空: start={start!r} end={end!r}")
@@ -58,6 +62,50 @@ def evaluate_factor(
     metrics["eval_end"] = end
     metrics["label_col"] = label_col
     return metrics
+
+
+def evaluate_factor(
+    expr: str,
+    panel: pd.DataFrame,
+    *,
+    label_col: str = DEFAULT_LABEL_COL,
+    start: str | None = None,
+    end: str | None = None,
+    min_pairs: int = 5,
+) -> dict[str, Any]:
+    """在全量 panel 上求值 DSL，再按日期窗计算 IC/ICIR/RANKIC/MLS 等指标。"""
+    panel_full = panel.sort_index()
+    values = _eval_values(expr, panel_full, label_col=label_col)
+    return _window_metrics(
+        values, panel_full,
+        label_col=label_col, start=start, end=end, min_pairs=min_pairs,
+    )
+
+
+def evaluate_factor_windows(
+    expr: str,
+    panel: pd.DataFrame,
+    windows: dict[str, tuple[str | None, str | None]],
+    *,
+    label_col: str = DEFAULT_LABEL_COL,
+    min_pairs: int = 5,
+) -> dict[str, dict[str, Any]]:
+    """DSL 只在全量 panel 上求值一次，再对多个日期窗分别计算指标。
+
+    ``windows`` 形如 ``{"holdout": (start, end), "val": (start, end), ...}``。
+    相比对每个窗单独调 ``evaluate_factor``，省去重复的 DSL 求值。
+    """
+    panel_full = panel.sort_index()
+    values = _eval_values(expr, panel_full, label_col=label_col)
+    out: dict[str, dict[str, Any]] = {}
+    for name, (start, end) in windows.items():
+        metrics = _window_metrics(
+            values, panel_full,
+            label_col=label_col, start=start, end=end, min_pairs=min_pairs,
+        )
+        metrics["window"] = name
+        out[name] = metrics
+    return out
 
 
 
