@@ -216,6 +216,11 @@ def main() -> int:
         panel = load_panel(args.panel)
         print(f"parquet ({time.perf_counter()-t0:.1f}s) shape={panel.shape}")
 
+    # 只排一次序，worker（fork 共享）直接复用，省去每个因子的重复 sort_index
+    ts = time.perf_counter()
+    panel = panel.sort_index()
+    print(f"sort_index ({time.perf_counter()-ts:.1f}s)")
+
     rows: list[dict] = []
     errors: list[str] = []
 
@@ -225,6 +230,11 @@ def main() -> int:
     use_parallel = workers >= 2 and len(selected) >= 2
 
     if use_parallel:
+        # 限制每个 worker 的 BLAS/numba 线程数为 1：避免 16 进程 × 每进程多线程互相抢核，
+        # 让"进程级并行"成为唯一并行源，总 CPU 才线性随核数涨。
+        for _k in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+                   "NUMBA_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+            os.environ[_k] = "1"
         # fork 下子进程继承模块全局 _PANEL/_WARGS（COW 共享内存，零序列化开销）
         global _PANEL, _WARGS
         _PANEL = panel

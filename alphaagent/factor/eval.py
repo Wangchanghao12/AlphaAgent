@@ -30,15 +30,14 @@ from alphaagent.factor.metrics import evaluate_on_panel
 from alphaagent.factor.types import DEFAULT_LABEL_COL
 
 
-def _eval_values(expr: str, panel: pd.DataFrame, *, label_col: str) -> np.ndarray:
-    """求值 DSL 并对齐到全量 panel，返回对齐后的因子值数组。"""
-    panel_full = panel.sort_index()
-    if label_col not in panel_full.columns:
+def _eval_values(expr: str, panel_sorted: pd.DataFrame, *, label_col: str) -> np.ndarray:
+    """求值 DSL 并对齐到已排序的 panel，返回对齐后的因子值数组。"""
+    if label_col not in panel_sorted.columns:
         raise KeyError(f"panel 缺少标签列: {label_col}")
-    out = eval_factor(expr, panel_full)
+    out = eval_factor(expr, panel_sorted)
     if not isinstance(out, pd.Series):
         raise TypeError(f"因子输出须为 Series，得到 {type(out)!r}")
-    return align_series_to_panel(out, panel_full)
+    return align_series_to_panel(out, panel_sorted)
 
 
 def _window_metrics(
@@ -73,7 +72,11 @@ def evaluate_factor(
     end: str | None = None,
     min_pairs: int = 5,
 ) -> dict[str, Any]:
-    """在全量 panel 上求值 DSL，再按日期窗计算 IC/ICIR/RANKIC/MLS 等指标。"""
+    """在全量 panel 上求值 DSL，再按日期窗计算 IC/ICIR/RANKIC/MLS 等指标。
+
+    注意：内部会对 panel 排序后操作。如果多窗复用，建议用 ``evaluate_factor_windows``
+    或自行在外部排序后传入已排序 panel。
+    """
     panel_full = panel.sort_index()
     values = _eval_values(expr, panel_full, label_col=label_col)
     return _window_metrics(
@@ -94,6 +97,9 @@ def evaluate_factor_windows(
 
     ``windows`` 形如 ``{"holdout": (start, end), "val": (start, end), ...}``。
     相比对每个窗单独调 ``evaluate_factor``，省去重复的 DSL 求值。
+
+    注意：内部会对 panel 排序后操作。若调用方已在外部排好序，传入已排序 panel
+    即可，重复的 ``sort_index`` 会退化为廉价检查（返回自身）。
     """
     panel_full = panel.sort_index()
     values = _eval_values(expr, panel_full, label_col=label_col)
