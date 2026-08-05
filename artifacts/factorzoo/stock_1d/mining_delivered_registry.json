@@ -1274,5 +1274,1281 @@
       ]
     },
     "source": "submit"
+  },
+  "low_turn_low_cv_combo": {
+    "name": "low_turn_low_cv_combo",
+    "comment": "低换手+低换手波动组合（流动性溢价/低关注度因子）：10日前瞻收益随换手率水平与换手率波动上升而下降。逻辑：换手率低且换手率CV低（量能冷清、无资金博弈）的股票具有正向漂移，高换手/换手剧烈波动（投机过热）股票未来10日收益为负。构造：TS_MEAN(turnover_rate_f,20) 与 TS_STD(turnover_rate_f,20)/TS_MEAN 的 CV，各自 NEG+WINSORIZE(1%,99%) 后按 LOG(float_cap) 10档市值中性化，再 CS_ZSCORE 等权相加。正IC（低换手做多）。train IC=0.071/ICIR=0.78，val IC=0.052/ICIR=0.58，月IC+占比训练91.7%/验证83.3%，十分组单调，cs_pearson_autocorr>0.97。",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/low_turn_low_cv_combo.dsl",
+    "ingest_config": {
+      "train_start": "2018-01-01",
+      "ingest_start": "2018-01-01",
+      "ingest_end": "2023-12-31",
+      "label_col": "label_10d_close_to_close"
+    },
+    "ingested_at": "2026-08-04T10:00:15.903119+00:00",
+    "ingest_metrics": {
+      "coverage": 0.9475858194167841,
+      "ic": 0.060942534329257086,
+      "icir": 0.673709824712281,
+      "rank_ic": 0.0956144636693005,
+      "n_days": 1383,
+      "cs_pearson_autocorr": 0.9722472832012119,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": -0.00959
+        },
+        {
+          "decile": 2,
+          "mean_label": -0.000684
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.001473
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.00271
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.00376
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.004528
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.004996
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.005867
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.007196
+        },
+        {
+          "decile": 10,
+          "mean_label": 0.007027
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": 0.3336137952190013,
+        "mean_ls": 0.018323577695248745,
+        "ir_ls": 0.6758382705814898,
+        "ir_ls_annual": 10.728599942751615,
+        "mls": 3.579208944287726,
+        "nw_t_rho": 9.076166012033909,
+        "nw_t_ls": 10.507320034851228,
+        "nw_se_rho": 0.03675712793008296,
+        "nw_se_ls": 0.0017438868935629776,
+        "n_days_rho": 1383,
+        "n_days_ls": 1383,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_10d_close_to_close",
+      "skew": -1.2341848052804554,
+      "kurt": 1.9382237836667655,
+      "eval_start": "2018-01-01",
+      "eval_end": "2023-12-31",
+      "finite_ratio": 0.9642528137596977
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 7,
+      "n_factors": 8,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.3572118077928224,
+      "top_neighbors": [
+        {
+          "factor_id": "amt_ret_rank_diff",
+          "name": "amt_ret_rank_diff",
+          "cs_corr": -0.3572118077928224,
+          "expr": "amt_rank = RANK(LOG($amount))\nret_rank = RANK($adj_close)\nSUBTRACT(amt_rank, ret_rank)"
+        },
+        {
+          "factor_id": "cov_ret_vol_neg20",
+          "name": "cov_ret_vol_neg20",
+          "cs_corr": 0.3500941767032571,
+          "expr": "# 量价协动取负：价量同向波动=过热\nNEG(RANK(TS_COV($ret, $volume, 20)))"
+        },
+        {
+          "factor_id": "amihud_log_30d_winsor",
+          "name": "amihud_log_30d_winsor",
+          "cs_corr": 0.10199525340357148,
+          "expr": "amihud = DIVIDE(ABS($ret), ADD($amount, 1e-12))\namihud_win = CS_WINSORIZE(amihud, 0.01, 0.99)\namihud_log = LOG(ADD(amihud_win, 1e-12))\namihud_smooth = TS_MEAN(amihud_log, 30)\nCS_ZSCORE(amihud_smooth)"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "wk_mom_5w": {
+    "name": "wk_mom_5w",
+    "comment": "5-week weekly momentum (weekly re-sampled close price return over 5 weeks) capturing medium-term mean-reversion in weekly structure. Negative IC indicates that stocks with higher past 5-week returns tend to underperform over the next 10 trading days (label_10d_close_to_close), consistent with weekly-level reversal. Winsorized at 1/99 and Z-scored cross-sectionally each day.",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/wk_mom_5w.dsl",
+    "ingest_config": {
+      "train_start": "2018-01-01",
+      "ingest_start": "2018-01-01",
+      "ingest_end": "2023-12-31",
+      "label_col": "label_10d_close_to_close"
+    },
+    "ingested_at": "2026-08-04T10:24:01.860191+00:00",
+    "ingest_metrics": {
+      "coverage": 0.9752425049621339,
+      "ic": -0.03090303059836297,
+      "icir": -0.26660385008733006,
+      "rank_ic": -0.04997861318095168,
+      "n_days": 1428,
+      "cs_pearson_autocorr": 0.948844528947204,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": 0.004846
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.005443
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.006873
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.006726
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.005967
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.00506
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.003577
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.002392
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.000482
+        },
+        {
+          "decile": 10,
+          "mean_label": -0.00224
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": -0.10671420083184788,
+        "mean_ls": -0.008781180090429223,
+        "ir_ls": -0.23400515415706274,
+        "ir_ls_annual": -3.7147166604415225,
+        "mls": 0.39641301973576787,
+        "nw_t_rho": -2.752605843171107,
+        "nw_t_ls": -3.895195519648453,
+        "nw_se_rho": 0.03876842777784306,
+        "nw_se_ls": 0.0022543618275730963,
+        "n_days_rho": 1428,
+        "n_days_ls": 1428,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_10d_close_to_close",
+      "skew": 1.1076990766234003,
+      "kurt": 2.866273269923696,
+      "eval_start": "2018-01-01",
+      "eval_end": "2023-12-31",
+      "finite_ratio": 0.9831209653489043
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 8,
+      "n_factors": 9,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.3516888549143393,
+      "top_neighbors": [
+        {
+          "factor_id": "low_turn_low_cv_combo",
+          "name": "low_turn_low_cv_combo",
+          "cs_corr": -0.3516888549143393,
+          "expr": "lt = TS_MEAN($turnover_rate_f, 20)\ncv = DIVIDE(TS_STD($turnover_rate_f, 20), lt)\nlt_z = CS_NEUTRALIZE(CS_WINSORIZE(NEG(lt), 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10))\ncv_z = CS_NEUTRALIZE(CS_WINSORIZE(NEG(cv), 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10))\nADD(CS_ZSCORE(lt_z), CS_ZSCORE(cv_z))"
+        },
+        {
+          "factor_id": "cov_ret_vol_neg20",
+          "name": "cov_ret_vol_neg20",
+          "cs_corr": -0.31764097638736877,
+          "expr": "# 量价协动取负：价量同向波动=过热\nNEG(RANK(TS_COV($ret, $volume, 20)))"
+        },
+        {
+          "factor_id": "amt_ret_rank_diff",
+          "name": "amt_ret_rank_diff",
+          "cs_corr": 0.15558681512888584,
+          "expr": "amt_rank = RANK(LOG($amount))\nret_rank = RANK($adj_close)\nSUBTRACT(amt_rank, ret_rank)"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "negskew_park60": {
+    "name": "negskew_park60",
+    "comment": "负偏度+帕金森低波组合因子（Volatility赛道）：TS_SKEW($ret,20)的负向秩（截面上更右偏/正偏的股票获正暴露）减去60日帕金森波动率秩（LOG(high/low)标准差）。经济含义：正偏度（右偏）股票体现上行尾部风险、投资者过度悲观定价→未来补涨；低帕金森波动率（价格范围高效）体现低风险溢价。双信号截面等权合成，10日持有期正alpha。",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/negskew_park60.dsl",
+    "ingest_config": {
+      "train_start": "2018-01-01",
+      "ingest_start": "2018-01-01",
+      "ingest_end": "2023-12-31",
+      "label_col": "label_10d_close_to_close"
+    },
+    "ingested_at": "2026-08-04T10:38:57.896502+00:00",
+    "ingest_metrics": {
+      "coverage": 0.9972494644908525,
+      "ic": 0.02788594927686473,
+      "icir": 0.31140809281263554,
+      "rank_ic": 0.07731879826638938,
+      "n_days": 1454,
+      "cs_pearson_autocorr": 0.960713291940067,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": -0.001576
+        },
+        {
+          "decile": 2,
+          "mean_label": -8e-05
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.001871
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.002733
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.004078
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.004967
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.005163
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.005101
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.005497
+        },
+        {
+          "decile": 10,
+          "mean_label": 0.006236
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": 0.19649868700762785,
+        "mean_ls": 0.00750405124322781,
+        "ir_ls": 0.2689979334312269,
+        "ir_ls_annual": 4.270209810296005,
+        "mls": 0.8390906209702566,
+        "nw_t_rho": 4.691181332421248,
+        "nw_t_ls": 4.27975063784939,
+        "nw_se_rho": 0.04188682403931068,
+        "nw_se_ls": 0.0017533851568040557,
+        "n_days_rho": 1454,
+        "n_days_ls": 1454,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_10d_close_to_close",
+      "skew": 0.010514666886270256,
+      "kurt": -0.7687725837902564,
+      "eval_start": "2018-01-01",
+      "eval_end": "2023-12-31",
+      "finite_ratio": 0.9981201668616175
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 9,
+      "n_factors": 10,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.49820108666429014,
+      "top_neighbors": [
+        {
+          "factor_id": "low_turn_low_cv_combo",
+          "name": "low_turn_low_cv_combo",
+          "cs_corr": 0.49820108666429014,
+          "expr": "lt = TS_MEAN($turnover_rate_f, 20)\ncv = DIVIDE(TS_STD($turnover_rate_f, 20), lt)\nlt_z = CS_NEUTRALIZE(CS_WINSORIZE(NEG(lt), 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10))\ncv_z = CS_NEUTRALIZE(CS_WINSORIZE(NEG(cv), 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10))\nADD(CS_ZSCORE(lt_z), CS_ZSCORE(cv_z))"
+        },
+        {
+          "factor_id": "cov_ret_vol_neg20",
+          "name": "cov_ret_vol_neg20",
+          "cs_corr": 0.4358778848243998,
+          "expr": "# 量价协动取负：价量同向波动=过热\nNEG(RANK(TS_COV($ret, $volume, 20)))"
+        },
+        {
+          "factor_id": "wk_mom_5w",
+          "name": "wk_mom_5w",
+          "cs_corr": -0.24339224711041205,
+          "expr": "ret_w = TS_PCTCHANGE($adj_close@1w, 5)\nCS_ZSCORE(CS_WINSORIZE(ret_w, 0.01, 0.99))"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "wk_mom5_ma12_dev": {
+    "name": "wk_mom5_ma12_dev",
+    "comment": "Weekly-structure composite reversal: 5-week weekly close momentum (medium-term reversal) combined with deviation of close from 12-week weekly MA (reversion to long-term weekly trend). Negative IC on label_10d_close_to_close: stocks with stronger recent 5-week gains and higher deviation above the 12-week weekly average tend to underperform over the next 10 trading days. Rank-combined then cross-sectionally Z-scored for stability.",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/wk_mom5_ma12_dev.dsl",
+    "ingest_config": {
+      "train_start": "2018-01-01",
+      "ingest_start": "2018-01-01",
+      "ingest_end": "2023-12-31",
+      "label_col": "label_10d_close_to_close"
+    },
+    "ingested_at": "2026-08-04T11:06:28.727580+00:00",
+    "ingest_metrics": {
+      "coverage": 0.9752425049621339,
+      "ic": -0.028690898856350722,
+      "icir": -0.2518803304856446,
+      "rank_ic": -0.05378576720030064,
+      "n_days": 1428,
+      "cs_pearson_autocorr": 0.9436984869327932,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": 0.005421
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.004791
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.005911
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.006039
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.005533
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.00511
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.004445
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.003596
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.001936
+        },
+        {
+          "decile": 10,
+          "mean_label": -0.003657
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": -0.10403191579662169,
+        "mean_ls": -0.010440467930789045,
+        "ir_ls": -0.26903143509330957,
+        "ir_ls_annual": -4.270741632694273,
+        "mls": 0.4442934339215773,
+        "nw_t_rho": -2.6418773558306627,
+        "nw_t_ls": -4.576979288825342,
+        "nw_se_rho": 0.039378026223292194,
+        "nw_se_ls": 0.002281082625014136,
+        "n_days_rho": 1428,
+        "n_days_ls": 1428,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_10d_close_to_close",
+      "skew": 0.06857488983336316,
+      "kurt": -0.7711251524515381,
+      "eval_start": "2018-01-01",
+      "eval_end": "2023-12-31",
+      "finite_ratio": 0.9831209653489043
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 10,
+      "n_factors": 11,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.7597667485012446,
+      "top_neighbors": [
+        {
+          "factor_id": "wk_mom_5w",
+          "name": "wk_mom_5w",
+          "cs_corr": 0.7597667485012446,
+          "expr": "ret_w = TS_PCTCHANGE($adj_close@1w, 5)\nCS_ZSCORE(CS_WINSORIZE(ret_w, 0.01, 0.99))"
+        },
+        {
+          "factor_id": "mom_vol",
+          "name": "mom_vol",
+          "cs_corr": 0.455571928017208,
+          "expr": "mom = DELTA($adj_close, 5)\nvol = TS_STD($adj_close, 20)\nDIVIDE(mom, ADD(vol, 1e-8))"
+        },
+        {
+          "factor_id": "cov_ret_vol_neg20",
+          "name": "cov_ret_vol_neg20",
+          "cs_corr": -0.36935831624016363,
+          "expr": "# 量价协动取负：价量同向波动=过热\nNEG(RANK(TS_COV($ret, $volume, 20)))"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "wk_mom5_ma12_turn_confirm": {
+    "name": "wk_mom5_ma12_turn_confirm",
+    "comment": "Weekly contrarian rebound confirmed by turnover expansion: core signal is negative 5-week close momentum + negative deviation from 12-week weekly MA (double weekly reversal), linearly amplified by 5-week percent change of turnover rate (trading activity confirmation). Positive IC on label_10d_close_to_close: recently sold-off weekly losers with rising turnover tend to rebound over the next 10 trading days. Weekly price structure (close momentum + MA deviation) is the primary signal; turnover change acts as a linear amplification weight, not a standalone source.",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/wk_mom5_ma12_turn_confirm.dsl",
+    "ingest_config": {
+      "train_start": "2018-01-01",
+      "ingest_start": "2018-01-01",
+      "ingest_end": "2023-12-31",
+      "label_col": "label_10d_close_to_close"
+    },
+    "ingested_at": "2026-08-04T12:51:38.163446+00:00",
+    "ingest_metrics": {
+      "coverage": 0.9657008272174092,
+      "ic": 0.028108732301568493,
+      "icir": 0.2744742162550236,
+      "rank_ic": 0.04053122583861883,
+      "n_days": 1428,
+      "cs_pearson_autocorr": 0.9122756242552109,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": -0.003932
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.002311
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.004034
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.005347
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.005262
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.005024
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.004708
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.004219
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.00367
+        },
+        {
+          "decile": 10,
+          "mean_label": 0.003154
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": 0.09123164417282062,
+        "mean_ls": 0.0076369810756360965,
+        "ir_ls": 0.23804927814637508,
+        "ir_ls_annual": 3.7789151385225077,
+        "mls": 0.3447566412769706,
+        "nw_t_rho": 2.434489408967961,
+        "nw_t_ls": 4.082849886095441,
+        "nw_se_rho": 0.037474652317956034,
+        "nw_se_ls": 0.0018705025383481792,
+        "n_days_rho": 1428,
+        "n_days_ls": 1428,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_10d_close_to_close",
+      "skew": -0.9321683059118282,
+      "kurt": 0.036823464729773825,
+      "eval_start": "2018-01-01",
+      "eval_end": "2023-12-31",
+      "finite_ratio": 0.9769144478061982
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 11,
+      "n_factors": 12,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.7807254698587126,
+      "top_neighbors": [
+        {
+          "factor_id": "wk_mom5_ma12_dev",
+          "name": "wk_mom5_ma12_dev",
+          "cs_corr": -0.7807254698587126,
+          "expr": "m5 = RANK(TS_PCTCHANGE($adj_close@1w, 5))\nma12 = RANK(DIVIDE(SUBTRACT($adj_close, TS_MEAN($adj_close@1w, 12)), TS_MEAN($adj_close@1w, 12)))\nCS_ZSCORE(ADD(m5, ma12))"
+        },
+        {
+          "factor_id": "wk_mom_5w",
+          "name": "wk_mom_5w",
+          "cs_corr": -0.691952643147453,
+          "expr": "ret_w = TS_PCTCHANGE($adj_close@1w, 5)\nCS_ZSCORE(CS_WINSORIZE(ret_w, 0.01, 0.99))"
+        },
+        {
+          "factor_id": "low_turn_low_cv_combo",
+          "name": "low_turn_low_cv_combo",
+          "cs_corr": 0.3551953323154305,
+          "expr": "lt = TS_MEAN($turnover_rate_f, 20)\ncv = DIVIDE(TS_STD($turnover_rate_f, 20), lt)\nlt_z = CS_NEUTRALIZE(CS_WINSORIZE(NEG(lt), 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10))\ncv_z = CS_NEUTRALIZE(CS_WINSORIZE(NEG(cv), 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10))\nADD(CS_ZSCORE(lt_z), CS_ZSCORE(cv_z))"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "wk_up_wick_8w_comb_std125": {
+    "name": "wk_up_wick_8w_comb_std125",
+    "comment": "Weekly upper-wick selling pressure (mean + instability): 8-week mean of (high - max(close,open))/(high-low) per weekly bar captures the average upper-shadow pressure, while the 8-week std of the same ratio captures the instability/variability of that selling pressure (1.25x weight). Negative IC on label_10d_close_to_close: stocks with persistently heavy and volatile weekly upper wicks tend to underperform over the next 10 trading days. The std component provides robustness in 2026 OOS where the pure level signal decayed. Pure weekly OHLC shape signal from open/high/low/close via @1w resampling; no volume or market-cap input.",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/wk_up_wick_8w_comb_std125.dsl",
+    "ingest_config": {
+      "train_start": "2018-01-01",
+      "ingest_start": "2018-01-01",
+      "ingest_end": "2023-12-31",
+      "label_col": "label_10d_close_to_close"
+    },
+    "ingested_at": "2026-08-04T14:23:16.504081+00:00",
+    "ingest_metrics": {
+      "coverage": 0.9921381739012657,
+      "ic": -0.018947532924656837,
+      "icir": -0.3480000682881279,
+      "rank_ic": -0.024040882521591506,
+      "n_days": 1448,
+      "cs_pearson_autocorr": 0.9721012580858337,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": 0.007348
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.004684
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.003755
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.003582
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.002766
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.002699
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.002248
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.002548
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.001458
+        },
+        {
+          "decile": 10,
+          "mean_label": 0.001661
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": -0.1792399129415704,
+        "mean_ls": -0.005401707036422989,
+        "ir_ls": -0.2866531980253089,
+        "ir_ls_annual": -4.5504784469779125,
+        "mls": 0.8156273606788136,
+        "nw_t_rho": -5.053163278445314,
+        "nw_t_ls": -4.834132003082928,
+        "nw_se_rho": 0.03547083342945459,
+        "nw_se_ls": 0.0011174099161913855,
+        "n_days_rho": 1448,
+        "n_days_ls": 1448,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_10d_close_to_close",
+      "skew": -0.17057904624587134,
+      "kurt": -0.19301014499672364,
+      "eval_start": "2018-01-01",
+      "eval_end": "2023-12-31",
+      "finite_ratio": 0.9946742578431996
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 12,
+      "n_factors": 13,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.10335809758721519,
+      "top_neighbors": [
+        {
+          "factor_id": "negskew_park60",
+          "name": "negskew_park60",
+          "cs_corr": -0.10335809758721519,
+          "expr": "skew_r = RANK(CS_WINSORIZE(TS_SKEW($ret, 20), 0.01, 0.99))\npark = TS_STD(LOG(DIVIDE($high, $low)), 60)\npark_r = RANK(park)\nSUBTRACT(NEG(skew_r), park_r)"
+        },
+        {
+          "factor_id": "low_turn_low_cv_combo",
+          "name": "low_turn_low_cv_combo",
+          "cs_corr": -0.09391916042771914,
+          "expr": "lt = TS_MEAN($turnover_rate_f, 20)\ncv = DIVIDE(TS_STD($turnover_rate_f, 20), lt)\nlt_z = CS_NEUTRALIZE(CS_WINSORIZE(NEG(lt), 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10))\ncv_z = CS_NEUTRALIZE(CS_WINSORIZE(NEG(cv), 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10))\nADD(CS_ZSCORE(lt_z), CS_ZSCORE(cv_z))"
+        },
+        {
+          "factor_id": "pv_diverg_ema_vol",
+          "name": "pv_diverg_ema_vol",
+          "cs_corr": 0.07122102035774003,
+          "expr": "# 量价背离：EMA平滑量能\nret5 = TS_MEAN($ret, 5)\nvol_ema = EMA($volume, 10)\nvol_chg_ema = TS_PCTCHANGE(vol_ema, 5)\nRANK(SUBTRACT(ret5, vol_chg_ema))"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "vol_neg_park_skew40_du": {
+    "name": "vol_neg_park_skew40_du",
+    "comment": "4腿波动复合因子（volatility赛道，10日持有label）：(1) vp_r=60日已实现波动与其自身滞后1期自相关(TS_CORR(v60,DELAY(v60,1),60))取负——高波动持续性(risk clustering)预示补偿；(2) park60_r=60日Parkinson波动(LOG(high/low)的std)取负——高区间波动对应未来风险溢价；(3) skew40_r=40日收益偏度取负——负偏(左尾风险)股票未来10日收益更高；(4) du_r=下行波动/上行波动比(60日down-side std/up-side std)——下行主导波动蕴含高补偿。四腿等权rank-NEG合成后按LOG(市值)10档CS_NEUTRALIZE剥离市值暴露，FILLNA(0)修复float_cap缺失日的coverage。正IC：高波动持续+高Parkinson波动+左偏+下行波动占比高 → 未来10日收益高。换手极低(cs_pearson_autocorr>0.97)，适合中低频。train ic=0.0271/share=0.722/MLS nw_t_rho=3.75/nw_t_ls=4.29；val ic=0.0313/share=0.722/MLS nw_t_rho=4.26/nw_t_ls=4.36；holdout ic=0.0395/share=0.857，三区间方向一致。",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/vol_neg_park_skew40_du.dsl",
+    "ingest_config": {
+      "train_start": "2018-01-01",
+      "ingest_start": "2018-01-01",
+      "ingest_end": "2023-12-31",
+      "label_col": "label_10d_close_to_close"
+    },
+    "ingested_at": "2026-08-04T14:29:00.291071+00:00",
+    "ingest_metrics": {
+      "coverage": 1.0,
+      "ic": 0.029314049699946443,
+      "icir": 0.37954704079615137,
+      "rank_ic": 0.0695563092798489,
+      "n_days": 1380,
+      "cs_pearson_autocorr": 0.9503959451482461,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": -0.004561
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.000159
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.001331
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.003096
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.009902
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.004148
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.004776
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.004912
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.004716
+        },
+        {
+          "decile": 10,
+          "mean_label": 0.004992
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": 0.21213877909530082,
+        "mean_ls": 0.009032933645618626,
+        "ir_ls": 0.3700429689054673,
+        "ir_ls_annual": 5.874250020791242,
+        "mls": 1.2461562275111995,
+        "nw_t_rho": 5.434815391620228,
+        "nw_t_ls": 5.846728172496427,
+        "nw_se_rho": 0.03903329990240165,
+        "nw_se_ls": 0.0015449552945030723,
+        "n_days_rho": 1380,
+        "n_days_ls": 1380,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_10d_close_to_close",
+      "skew": -0.018575942232709575,
+      "kurt": -0.5269366801536881,
+      "eval_start": "2018-01-01",
+      "eval_end": "2023-12-31",
+      "finite_ratio": 1.0
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 13,
+      "n_factors": 14,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.7069084347855663,
+      "top_neighbors": [
+        {
+          "factor_id": "negskew_park60",
+          "name": "negskew_park60",
+          "cs_corr": 0.7069084347855663,
+          "expr": "skew_r = RANK(CS_WINSORIZE(TS_SKEW($ret, 20), 0.01, 0.99))\npark = TS_STD(LOG(DIVIDE($high, $low)), 60)\npark_r = RANK(park)\nSUBTRACT(NEG(skew_r), park_r)"
+        },
+        {
+          "factor_id": "low_turn_low_cv_combo",
+          "name": "low_turn_low_cv_combo",
+          "cs_corr": 0.44163122413630257,
+          "expr": "lt = TS_MEAN($turnover_rate_f, 20)\ncv = DIVIDE(TS_STD($turnover_rate_f, 20), lt)\nlt_z = CS_NEUTRALIZE(CS_WINSORIZE(NEG(lt), 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10))\ncv_z = CS_NEUTRALIZE(CS_WINSORIZE(NEG(cv), 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10))\nADD(CS_ZSCORE(lt_z), CS_ZSCORE(cv_z))"
+        },
+        {
+          "factor_id": "cov_ret_vol_neg20",
+          "name": "cov_ret_vol_neg20",
+          "cs_corr": 0.3363577764082378,
+          "expr": "# 量价协动取负：价量同向波动=过热\nNEG(RANK(TS_COV($ret, $volume, 20)))"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "mom_resi60_wk_ma13_39": {
+    "name": "mom_resi60_wk_ma13_39",
+    "comment": "多周期动量+均值回归组合（3信号）：1) RESI(LOG(adj_close),60) 60日对数价格线性回归残差，取负捕捉短期超涨回落均值回归；2) 120日-20日收益差捕捉中期加速度动量；3) 周线13w-39w MA乖离捕捉慢速周线趋势（窗口显著区别于库内5w/12w因子）。三者CS_ZSCORE后按1:1:0.5加权（残差反转取负），2%/98% winsorize。10日持有label下正IC：慢速动量为主、残差反转互补。train IC=0.042/ICIR=0.41/月IC+81.8%，val同号IC=0.022/月IC+72.2%，cs_pearson_autocorr>0.93。",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/mom_resi60_wk_ma13_39.dsl",
+    "ingest_config": {
+      "train_start": "2018-01-01",
+      "ingest_start": "2018-01-01",
+      "ingest_end": "2023-12-31",
+      "label_col": "label_10d_close_to_close"
+    },
+    "ingested_at": "2026-08-04T20:03:35.581654+00:00",
+    "ingest_metrics": {
+      "coverage": 0.9448001685536989,
+      "ic": 0.03149875145960845,
+      "icir": 0.28937915357461186,
+      "rank_ic": 0.04697623671117286,
+      "n_days": 1395,
+      "cs_pearson_autocorr": 0.9358892696315199,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": -0.004718
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.000975
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.003128
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.004296
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.005296
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.006054
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.006318
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.00583
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.004636
+        },
+        {
+          "decile": 10,
+          "mean_label": 0.003841
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": 0.10342130987292276,
+        "mean_ls": 0.009778789791252636,
+        "ir_ls": 0.27897069545129194,
+        "ir_ls_annual": 4.428522499433138,
+        "mls": 0.45800359769308496,
+        "nw_t_rho": 2.8444619718033723,
+        "nw_t_ls": 4.7867596807568775,
+        "nw_se_rho": 0.036358830210464814,
+        "nw_se_ls": 0.0020428829612157222,
+        "n_days_rho": 1395,
+        "n_days_ls": 1395,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_10d_close_to_close",
+      "skew": -0.37866985721083873,
+      "kurt": 0.7500701039064896,
+      "eval_start": "2018-01-01",
+      "eval_end": "2023-12-31",
+      "finite_ratio": 0.9622906925221151
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 14,
+      "n_factors": 15,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.7930715443524872,
+      "top_neighbors": [
+        {
+          "factor_id": "wk_mom5_ma12_dev",
+          "name": "wk_mom5_ma12_dev",
+          "cs_corr": -0.7930715443524872,
+          "expr": "m5 = RANK(TS_PCTCHANGE($adj_close@1w, 5))\nma12 = RANK(DIVIDE(SUBTRACT($adj_close, TS_MEAN($adj_close@1w, 12)), TS_MEAN($adj_close@1w, 12)))\nCS_ZSCORE(ADD(m5, ma12))"
+        },
+        {
+          "factor_id": "wk_mom5_ma12_turn_confirm",
+          "name": "wk_mom5_ma12_turn_confirm",
+          "cs_corr": 0.6594756026307228,
+          "expr": "m5 = RANK(TS_PCTCHANGE($adj_close@1w, 5))\nma12 = RANK(DIVIDE(SUBTRACT($adj_close, TS_MEAN($adj_close@1w, 12)), TS_MEAN($adj_close@1w, 12)))\nrev = NEG(ADD(m5, ma12))\nturnw = RANK(TS_PCTCHANGE($turnover_rate@1w, 5))\nCS_ZSCORE(MULTIPLY(rev, turnw))"
+        },
+        {
+          "factor_id": "wk_mom_5w",
+          "name": "wk_mom_5w",
+          "cs_corr": -0.5901192868396841,
+          "expr": "ret_w = TS_PCTCHANGE($adj_close@1w, 5)\nCS_ZSCORE(CS_WINSORIZE(ret_w, 0.01, 0.99))"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "vwap_rev_mom_wk_eff": {
+    "name": "vwap_rev_mom_wk_eff",
+    "comment": "多周期量价动量组合（vwap锚反转+慢动量+周线效率比）：1) close相对vwap乖离20日均值取负，捕捉收盘价相对日内量价均衡点的均值回归（vwap锚反转，区别于已入库因子的resi60线性回归残差反转）；2) 120日-20日收益差捕捉中期加速度动量；3) 周线26w Kaufman效率比捕捉慢速趋势质量。三者CS_ZSCORE后按1:1:0.5加权，2%/98% winsorize。10日持有label下正IC：train IC=0.052/ICIR=0.54/月IC+83.3%，val同号IC=0.018/月IC+72.2%，cs_pearson_autocorr>0.93，十分组train/val均单调。",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/vwap_rev_mom_wk_eff.dsl",
+    "ingest_config": {
+      "train_start": "2018-01-01",
+      "ingest_start": "2018-01-01",
+      "ingest_end": "2023-12-31",
+      "label_col": "label_10d_close_to_close"
+    },
+    "ingested_at": "2026-08-04T20:26:50.003556+00:00",
+    "ingest_metrics": {
+      "coverage": 0.985999675601016,
+      "ic": 0.03457313433453415,
+      "icir": 0.37037811412960464,
+      "rank_ic": 0.03665065427254286,
+      "n_days": 1436,
+      "cs_pearson_autocorr": 0.937853278060243,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": -0.004675
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.001491
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.003589
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.004509
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.004998
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.00551
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.00549
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.005722
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.006607
+        },
+        {
+          "decile": 10,
+          "mean_label": 0.007294
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": 0.1693255676542585,
+        "mean_ls": 0.012359623941358335,
+        "ir_ls": 0.39836853077622203,
+        "ir_ls_annual": 6.323904375528385,
+        "mls": 1.0707986981775928,
+        "nw_t_rho": 4.574745347662563,
+        "nw_t_ls": 6.761555849337038,
+        "nw_se_rho": 0.03701311325247302,
+        "nw_se_ls": 0.001827926030156237,
+        "n_days_rho": 1436,
+        "n_days_ls": 1436,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_10d_close_to_close",
+      "skew": -0.0794649782441152,
+      "kurt": 0.37114941192659145,
+      "eval_start": "2018-01-01",
+      "eval_end": "2023-12-31",
+      "finite_ratio": 0.9906947229693622
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 15,
+      "n_factors": 16,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.6352929861346017,
+      "top_neighbors": [
+        {
+          "factor_id": "mom_resi60_wk_ma13_39",
+          "name": "mom_resi60_wk_ma13_39",
+          "cs_corr": 0.6352929861346017,
+          "expr": "resi = RESI(LOG($adj_close), 60)\nmom120 = TS_MEAN($ret, 120)\nmom20 = TS_MEAN($ret, 20)\nfast = ADD(NEG(CS_ZSCORE(resi)), CS_ZSCORE(SUBTRACT(mom120, mom20)))\nma_w13 = TS_MEAN($adj_close@1w, 13)\nma_w39 = TS_MEAN($adj_close@1w, 39)\nwkg = CS_ZSCORE(SUBTRACT(ma_w39, ma_w13) / ma_w13)\nraw = ADD(fast, MULTIPLY(wkg, 0.5))\nCS_WINSORIZE(raw, 0.02, 0.98)"
+        },
+        {
+          "factor_id": "wk_mom5_ma12_dev",
+          "name": "wk_mom5_ma12_dev",
+          "cs_corr": -0.5353996095050453,
+          "expr": "m5 = RANK(TS_PCTCHANGE($adj_close@1w, 5))\nma12 = RANK(DIVIDE(SUBTRACT($adj_close, TS_MEAN($adj_close@1w, 12)), TS_MEAN($adj_close@1w, 12)))\nCS_ZSCORE(ADD(m5, ma12))"
+        },
+        {
+          "factor_id": "wk_mom_5w",
+          "name": "wk_mom_5w",
+          "cs_corr": -0.44847909713845635,
+          "expr": "ret_w = TS_PCTCHANGE($adj_close@1w, 5)\nCS_ZSCORE(CS_WINSORIZE(ret_w, 0.01, 0.99))"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "kline_geom20_mom_wk_tr_vwap": {
+    "name": "kline_geom20_mom_wk_tr_vwap",
+    "comment": "K线几何形态+量价反转+慢动量+周线秩趋势组合（4信号）：1) KLINE_GEOMETRY(open,high,low,close,20) 20根K线堆叠SVD的σ₂/σ₁，低秩=趋势性K线形态，取负（形态反转）；2) close-vwap乖离20日均值取负（vwap锚均值回归）；3) 120日-20日收益差慢动量；4) 周线13w TS_TREND_RANK秩趋势（Mann-Kendall风格，与已入库因子的效率比/MA乖离机制不同）。CS_ZSCORE后按1:1:0.5:0.5加权，2%/98% winsorize。10日持有label下正IC：train IC=0.055/ICIR=0.69/rank_ic=0.079/月IC+80.6%，val同号IC=0.032/月IC+75%，MLS train nw_t_rho=6.81/nw_t_ls=7.83、val nw_t_rho=2.78/nw_t_ls=3.87，cs_pearson_autocorr>0.94。",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/kline_geom20_mom_wk_tr_vwap.dsl",
+    "ingest_config": {
+      "train_start": "2018-01-01",
+      "ingest_start": "2018-01-01",
+      "ingest_end": "2023-12-31",
+      "label_col": "label_10d_close_to_close"
+    },
+    "ingested_at": "2026-08-04T22:09:23.055213+00:00",
+    "ingest_metrics": {
+      "coverage": 0.986002183840583,
+      "ic": 0.04315674693782282,
+      "icir": 0.4729173349265005,
+      "rank_ic": 0.06982308836001769,
+      "n_days": 1436,
+      "cs_pearson_autocorr": 0.9460531623428466,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": -0.005772
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.00117
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.003535
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.004789
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.005605
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.006183
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.00609
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.006021
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.006191
+        },
+        {
+          "decile": 10,
+          "mean_label": 0.006713
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": 0.21933822908753273,
+        "mean_ls": 0.012892039244939302,
+        "ir_ls": 0.45687884775487925,
+        "ir_ls_annual": 7.252726862670908,
+        "mls": 1.590800266113814,
+        "nw_t_rho": 6.263930304624672,
+        "nw_t_ls": 7.7014614391370735,
+        "nw_se_rho": 0.035016071127993695,
+        "nw_se_ls": 0.001673973095473139,
+        "n_days_rho": 1436,
+        "n_days_ls": 1436,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_10d_close_to_close",
+      "skew": -1.0139761200073385,
+      "kurt": 1.4561183162775735,
+      "eval_start": "2018-01-01",
+      "eval_end": "2023-12-31",
+      "finite_ratio": 0.990696349216382
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 16,
+      "n_factors": 17,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.6645516119013002,
+      "top_neighbors": [
+        {
+          "factor_id": "vwap_rev_mom_wk_eff",
+          "name": "vwap_rev_mom_wk_eff",
+          "cs_corr": 0.6645516119013002,
+          "expr": "vd = DIVIDE(SUBTRACT($close, $vwap), $vwap)\nrev = NEG(CS_ZSCORE(TS_MEAN(vd, 20)))\nmom120 = TS_MEAN($ret, 120)\nmom20 = TS_MEAN($ret, 20)\nmom = CS_ZSCORE(SUBTRACT(mom120, mom20))\nwke = CS_ZSCORE(TS_EFFICIENCY_RATIO($adj_close@1w, 26))\nraw = ADD(ADD(rev, MULTIPLY(mom, 0.5)), MULTIPLY(wke, 0.5))\nCS_WINSORIZE(raw, 0.02, 0.98)"
+        },
+        {
+          "factor_id": "mom_resi60_wk_ma13_39",
+          "name": "mom_resi60_wk_ma13_39",
+          "cs_corr": 0.6437074870611303,
+          "expr": "resi = RESI(LOG($adj_close), 60)\nmom120 = TS_MEAN($ret, 120)\nmom20 = TS_MEAN($ret, 20)\nfast = ADD(NEG(CS_ZSCORE(resi)), CS_ZSCORE(SUBTRACT(mom120, mom20)))\nma_w13 = TS_MEAN($adj_close@1w, 13)\nma_w39 = TS_MEAN($adj_close@1w, 39)\nwkg = CS_ZSCORE(SUBTRACT(ma_w39, ma_w13) / ma_w13)\nraw = ADD(fast, MULTIPLY(wkg, 0.5))\nCS_WINSORIZE(raw, 0.02, 0.98)"
+        },
+        {
+          "factor_id": "wk_mom5_ma12_turn_confirm",
+          "name": "wk_mom5_ma12_turn_confirm",
+          "cs_corr": 0.482504336614784,
+          "expr": "m5 = RANK(TS_PCTCHANGE($adj_close@1w, 5))\nma12 = RANK(DIVIDE(SUBTRACT($adj_close, TS_MEAN($adj_close@1w, 12)), TS_MEAN($adj_close@1w, 12)))\nrev = NEG(ADD(m5, ma12))\nturnw = RANK(TS_PCTCHANGE($turnover_rate@1w, 5))\nCS_ZSCORE(MULTIPLY(rev, turnw))"
+        }
+      ]
+    },
+    "source": "submit"
+  },
+  "pe_rev_vwap": {
+    "name": "pe_rev_vwap",
+    "comment": "排列熵反转+vwap锚反转组合（2信号）：1) TS_PERMUTATION_ENTROPY(adj_close,20,3) Bandt-Pompe排列熵衡量20日价格序列序数模式复杂度，取负——低复杂度（趋势性/可预测序列）预示未来10日收益更高；2) close-vwap乖离20日均值取负，vwap锚均值回归。两者CS_ZSCORE等权相加，2%/98% winsorize。排列熵为全新信息维度（价格序数模式），显著区别于已入库因子的残差/K线几何/vwap信号。10日持有label下正IC：train IC=0.044/ICIR=0.67/月IC+86.1%，val同号IC=0.027/ICIR=0.46/月IC+83.3%，val MLS nw_t_rho=4.82/nw_t_ls=6.19，十分组train/val严格单调，cs_pearson_autocorr>0.93。",
+    "expression_file": "artifacts/factorzoo/stock_1d/expressions/pe_rev_vwap.dsl",
+    "ingest_config": {
+      "train_start": "2018-01-01",
+      "ingest_start": "2018-01-01",
+      "ingest_end": "2023-12-31",
+      "label_col": "label_10d_close_to_close"
+    },
+    "ingested_at": "2026-08-04T22:15:54.796703+00:00",
+    "ingest_metrics": {
+      "coverage": 0.997630549689062,
+      "ic": 0.0352962173208134,
+      "icir": 0.5620167705282827,
+      "rank_ic": 0.0341030390645128,
+      "n_days": 1454,
+      "cs_pearson_autocorr": 0.9287877548265093,
+      "decile_mean_label": [
+        {
+          "decile": 1,
+          "mean_label": -0.003695
+        },
+        {
+          "decile": 2,
+          "mean_label": 0.000686
+        },
+        {
+          "decile": 3,
+          "mean_label": 0.002066
+        },
+        {
+          "decile": 4,
+          "mean_label": 0.00303
+        },
+        {
+          "decile": 5,
+          "mean_label": 0.003481
+        },
+        {
+          "decile": 6,
+          "mean_label": 0.003896
+        },
+        {
+          "decile": 7,
+          "mean_label": 0.005001
+        },
+        {
+          "decile": 8,
+          "mean_label": 0.005433
+        },
+        {
+          "decile": 9,
+          "mean_label": 0.005846
+        },
+        {
+          "decile": 10,
+          "mean_label": 0.008603
+        }
+      ],
+      "mls_fmb": {
+        "mean_rho": 0.2655329081738985,
+        "mean_ls": 0.012763159974432144,
+        "ir_ls": 0.5719541835145008,
+        "ir_ls_annual": 9.079491185414208,
+        "mls": 2.410903699202312,
+        "nw_t_rho": 8.495475713062978,
+        "nw_t_ls": 9.53219558117429,
+        "nw_se_rho": 0.031255802163686335,
+        "nw_se_ls": 0.001338952801140472,
+        "n_days_rho": 1454,
+        "n_days_ls": 1454,
+        "nw_lags": 7,
+        "n_deciles": 10,
+        "n_deciles_requested": 10,
+        "min_stocks": 30,
+        "min_stocks_requested": 30,
+        "annualization_factor": 252.0,
+        "note": "MLS+FMB 非参数版：ρ_t=逐日十分组 Spearman 单调性，LS_t=Q10-Q1 多空；IR_LS 为日频 LS 均值/标准差，ir_ls_annual=IR_LS×√252；MLS=mean(ρ)×ir_ls_annual。"
+      },
+      "label_col": "label_10d_close_to_close",
+      "skew": 0.39833578080543297,
+      "kurt": 0.09116036453141074,
+      "eval_start": "2018-01-01",
+      "eval_end": "2023-12-31",
+      "finite_ratio": 0.9983995560996135
+    },
+    "ingest_status": "stored",
+    "similarity": {
+      "col_idx": 17,
+      "n_factors": 18,
+      "kind": "cross_sectional_pearson_mean",
+      "max_abs_corr": 0.5415648304581577,
+      "top_neighbors": [
+        {
+          "factor_id": "vwap_rev_mom_wk_eff",
+          "name": "vwap_rev_mom_wk_eff",
+          "cs_corr": 0.5415648304581577,
+          "expr": "vd = DIVIDE(SUBTRACT($close, $vwap), $vwap)\nrev = NEG(CS_ZSCORE(TS_MEAN(vd, 20)))\nmom120 = TS_MEAN($ret, 120)\nmom20 = TS_MEAN($ret, 20)\nmom = CS_ZSCORE(SUBTRACT(mom120, mom20))\nwke = CS_ZSCORE(TS_EFFICIENCY_RATIO($adj_close@1w, 26))\nraw = ADD(ADD(rev, MULTIPLY(mom, 0.5)), MULTIPLY(wke, 0.5))\nCS_WINSORIZE(raw, 0.02, 0.98)"
+        },
+        {
+          "factor_id": "kline_geom20_mom_wk_tr_vwap",
+          "name": "kline_geom20_mom_wk_tr_vwap",
+          "cs_corr": 0.4306794984242812,
+          "expr": "kg = CS_ZSCORE(KLINE_GEOMETRY($open, $high, $low, $close, 20))\nvd = DIVIDE(SUBTRACT($close, $vwap), $vwap)\nrev = NEG(CS_ZSCORE(TS_MEAN(vd, 20)))\nmom120 = TS_MEAN($ret, 120)\nmom20 = TS_MEAN($ret, 20)\nmom = CS_ZSCORE(SUBTRACT(mom120, mom20))\nwkt = CS_ZSCORE(TS_TREND_RANK($adj_close@1w, 13))\nraw = ADD(ADD(ADD(NEG(kg), rev), MULTIPLY(mom, 0.5)), MULTIPLY(wkt, 0.5))\nCS_WINSORIZE(raw, 0.02, 0.98)"
+        },
+        {
+          "factor_id": "mom_resi60_wk_ma13_39",
+          "name": "mom_resi60_wk_ma13_39",
+          "cs_corr": 0.2803361877563961,
+          "expr": "resi = RESI(LOG($adj_close), 60)\nmom120 = TS_MEAN($ret, 120)\nmom20 = TS_MEAN($ret, 20)\nfast = ADD(NEG(CS_ZSCORE(resi)), CS_ZSCORE(SUBTRACT(mom120, mom20)))\nma_w13 = TS_MEAN($adj_close@1w, 13)\nma_w39 = TS_MEAN($adj_close@1w, 39)\nwkg = CS_ZSCORE(SUBTRACT(ma_w39, ma_w13) / ma_w13)\nraw = ADD(fast, MULTIPLY(wkg, 0.5))\nCS_WINSORIZE(raw, 0.02, 0.98)"
+        }
+      ]
+    },
+    "source": "submit"
   }
 }
