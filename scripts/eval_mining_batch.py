@@ -46,6 +46,16 @@ def _parse_args() -> argparse.Namespace:
         default="submit",
         help="'submit'(默认)—只看挖掘 submit 的因子；'all'—全部注册的因子；逗号列表—指定来源",
     )
+    p.add_argument(
+        "--since",
+        default=None,
+        help="只评估 ingested_at >= 该日期(YYYY-MM-DD)的因子，如 --since 2026-08-04 只看昨天本轮",
+    )
+    p.add_argument(
+        "--until",
+        default=None,
+        help="只评估 ingested_at <= 该日期(YYYY-MM-DD)的因子",
+    )
     p.add_argument("--min-holdout-ic", type=float, default=0.005, help="holdout 最小 |IC|（默认 0.005）")
     p.add_argument("--min-holdout-icir", type=float, default=0.05, help="holdout 最小 |ICIR|（默认 0.05）")
     p.add_argument("--panel-cache", type=Path, default=None, help="预加载 panel 的 pickle（加速多次评测）")
@@ -110,6 +120,20 @@ def main() -> int:
     else:
         sources = set(s.strip() for s in args.source_filter.split(","))
         selected = [(k, v) for k, v in registry.items() if v.get("source") in sources]
+
+    # 过滤 ingested_at 日期范围
+    if args.since or args.until:
+        def _in_range(v: dict) -> bool:
+            ts = str(v.get("ingested_at") or "")[:10]
+            if args.since and ts < args.since:
+                return False
+            if args.until and ts > args.until:
+                return False
+            return True
+        before = len(selected)
+        selected = [(k, v) for k, v in selected if _in_range(v)]
+        print(f"日期过滤(--since {args.since or '-'} --until {args.until or '-'}): {before} → {len(selected)}")
+
     print(f"筛选 source={args.source_filter!r} → {len(selected)} 个因子\n")
 
     if not selected:
