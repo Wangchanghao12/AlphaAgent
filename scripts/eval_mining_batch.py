@@ -144,30 +144,42 @@ def main() -> int:
             continue
 
         # --- holdout ---
-        ho_metrics = evaluate_factor(
-            expr, panel,
-            label_col=args.label_col,
-            start=args.holdout_start, end=args.holdout_end,
-        )
+        try:
+            ho_metrics = evaluate_factor(
+                expr, panel,
+                label_col=args.label_col,
+                start=args.holdout_start, end=args.holdout_end,
+            )
+        except Exception as exc:  # noqa: BLE001 — 单个因子失败不中断整批
+            errors.append(f"{factor_id}: holdout 求值失败 ({type(exc).__name__}: {exc})")
+            continue
         ho_ok, ho_reason = _pass_thresholds(
             ho_metrics, args.min_holdout_ic, args.min_holdout_icir,
         )
         ho_summary = ho_metrics
 
         # --- val ---
-        val_metrics = evaluate_factor(
-            expr, panel,
-            label_col=args.label_col,
-            start=args.val_start, end=args.val_end,
-        )
+        try:
+            val_metrics = evaluate_factor(
+                expr, panel,
+                label_col=args.label_col,
+                start=args.val_start, end=args.val_end,
+            )
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{factor_id}: val 求值失败 ({type(exc).__name__}: {exc})")
+            continue
         val_summary = val_metrics
 
         # --- train ---
-        train_metrics = evaluate_factor(
-            expr, panel,
-            label_col=args.label_col,
-            start=args.train_start, end=args.train_end,
-        )
+        try:
+            train_metrics = evaluate_factor(
+                expr, panel,
+                label_col=args.label_col,
+                start=args.train_start, end=args.train_end,
+            )
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{factor_id}: train 求值失败 ({type(exc).__name__}: {exc})")
+            continue
         train_summary = train_metrics
 
         rows.append({
