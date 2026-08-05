@@ -19,10 +19,12 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
 def _parse_args() -> argparse.Namespace:
@@ -50,7 +52,7 @@ def main() -> int:
 
     registry_path = Path(args.registry).expanduser().resolve()
     if not registry_path.is_file():
-        print(f"错误：registry 不存在 {registry_path}", file=__import__("sys").stderr)
+        print(f"错误：registry 不存在 {registry_path}", file=sys.stderr)
         return 1
 
     registry = load_mining_registry(registry_path)
