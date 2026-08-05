@@ -12,14 +12,15 @@ vt_symbol 采用 vnpy 格式（Tushare ts_code 映射：.SZ→.SZSE / .SH→.SSE
       --registry artifacts/factorzoo/stock_1d/mining_delivered_registry.json \
       --out /mnt/recom/develop/wangchanghao/rtp_fg/em_ak/em_ak/examples/alpha_research/lab/factor_tables/mining_factors.parquet
 
-  # 只导出指定因子（用 holdout 通过的那几个）
+  # 只导出指定因子（用 holdout 通过的那几个；注意必须用 registry 里的完整 factor_id）
   uv run python scripts/export_factors_to_vnpy.py \
-      --factor-ids wk_mom5_ma12_dev,mom_resi60_wk_ma13 --out .../mining_factors.parquet
+      --factor-ids wk_mom5_ma12_dev,mom_resi60_wk_ma13_39 --out .../mining_factors.parquet
 """
 
 from __future__ import annotations
 
 import argparse
+import difflib
 import sys
 import time
 from pathlib import Path
@@ -80,6 +81,11 @@ def main() -> int:
         missing = [i for i in ids if i not in registry]
         if missing:
             print(f"错误：registry 不存在因子 {missing}", file=sys.stderr)
+            for m in missing:
+                cand = difflib.get_close_matches(m, registry.keys(), n=3, cutoff=0.4)
+                if cand:
+                    print(f"  相近的 factor_id: {cand}", file=sys.stderr)
+            print(f"registry 全部 factor_id: {sorted(registry.keys())}", file=sys.stderr)
             return 1
     else:
         ids = [k for k, v in registry.items() if v.get("source") == "submit"]
