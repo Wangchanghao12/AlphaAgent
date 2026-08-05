@@ -50,6 +50,41 @@ def _resolve_periods(args: argparse.Namespace) -> list[str]:
     raise SystemExit("须指定 --start/--end 或 --periods")
 
 
+def _warn_if_statements_would_be_lost(args: argparse.Namespace) -> None:
+    """不带 --with-statements 重跑前，检查是否会丢掉 factorlib 已用到的三大表列。"""
+    try:
+        from alphaagent.factor.column_guard import (
+            factorlib_referenced_columns,
+            statement_columns_from_module,
+            warn_factorlib_columns_lost,
+        )
+        from alphaagent.factor.zoo import DEFAULT_FACTORLIB_ROOT
+    except Exception:  # noqa: BLE001 — 预检失败不阻塞主流程
+        return
+
+    factory = args.factorlib or DEFAULT_FACTORLIB_ROOT
+    if not Path(factory).is_dir():
+        return
+
+    # 不带 statements 重跑后，三大表列将不存在；其余列保留
+    stmt = statement_columns_from_module()
+    kept = set()
+    qpath = Path(args.quarterly_out)
+    if qpath.is_file():
+        try:
+            import pyarrow.parquet as pq
+            kept = {str(f.name) for f in pq.read_schema(qpath)}
+        except Exception:  # noqa: BLE001
+            return
+    available_after = kept - stmt
+
+    warn_factorlib_columns_lost(
+        factory,
+        available_columns=available_after,
+        context="不带 --with-statements 重跑 fetch_fundamentals",
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="拉取 Tushare 季频财务指标缓存")
     parser.add_argument("--start", type=str, help="起始日期 YYYY-MM-DD（含区间内全部季报季末）")
@@ -90,6 +125,12 @@ def main() -> None:
         action="store_true",
         help="额外拉取三大表(income/balancesheet/cashflow)并入季频缓存的 funda_fs_* 列",
     )
+    parser.add_argument(
+        "--factorlib",
+        type=Path,
+        default=None,
+        help="factorzoo 根目录（默认 artifacts/factorzoo/stock_1d）；用于覆盖前列丢失预检",
+    )
     parser.add_argument("--max-retries", type=int, default=5)
     parser.add_argument("--timeout", type=int, default=60)
     args = parser.parse_args()
@@ -119,6 +160,8 @@ def main() -> None:
 
     if args.with_statements:
         print("附加拉取: 三大表 income / balancesheet / cashflow（funda_fs_* 原始值）")
+    else:
+        _warn_if_statements_would_be_lost(args)
 
     fetch_and_save_periods(
         periods,

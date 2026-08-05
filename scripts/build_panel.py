@@ -69,6 +69,56 @@ def _resolve_log_file(args: argparse.Namespace) -> Path | None:
     return DEFAULT_LOG_DIR / f"build_panel_{stamp}.log"
 
 
+def _precheck_factorlib_columns(args: argparse.Namespace) -> None:
+    """重建 panel 前，检查输入源(quarterly/industry)是否缺 factorlib 已用到的列。"""
+    try:
+        from alphaagent.factor.column_guard import (
+            factorlib_referenced_columns,
+            warn_factorlib_columns_lost,
+        )
+        from alphaagent.factor.zoo import DEFAULT_FACTORLIB_ROOT
+        import pyarrow.parquet as pq
+    except Exception:  # noqa: BLE001 — 预检失败不阻塞主流程
+        return
+
+    factory = args.factorlib or DEFAULT_FACTORLIB_ROOT
+    if not Path(factory).is_dir():
+        return
+    refs = factorlib_referenced_columns(factory)
+    if not refs:
+        return
+
+    # 基本面列来自 quarterly 源；缺则重建的 panel 也会缺。
+    if args.with_fundamentals:
+        qpath = args.quarterly
+        if qpath.is_file():
+            try:
+                qcols = {str(f.name) for f in pq.read_schema(qpath)}
+            except Exception:  # noqa: BLE001
+                qcols = set()
+            funda_refs = {c for c in refs if c.startswith("funda_")}
+            missing = sorted(c for c in funda_refs if c not in qcols)
+            if missing:
+                print("[警告] " + "-" * 70)
+                print("[警告] quarterly 缓存缺少以下 funda_* 列，重建的 panel 将同样缺失：")
+                for c in missing:
+                    fids = sorted(refs[c])
+                    print(
+                        f"[警告]   - {c}   被 {len(fids)} 个因子引用: "
+                        f"{'、'.join(fids[:8])}{'…' if len(fids) > 8 else ''}"
+                    )
+                print("[警告] 请先 fetch_fundamentals.py --with-statements 补全后再重建。")
+                print("[警告] " + "-" * 70)
+
+    # 行业列需 --with-industry。
+    if not args.with_industry and "industry_sw_l1" in refs:
+        warn_factorlib_columns_lost(
+            factory,
+            available_columns=set(),
+            context="未带 --with-industry 重建 panel",
+        )
+
+
 def main() -> None:
     # 重定向到文件时默认块缓冲，强制行缓冲以便 nohup/tail 能看到进度
     try:
@@ -130,6 +180,12 @@ def main() -> None:
         help="强制重新从 Tushare 拉取行业成员（忽略本地缓存）",
     )
     parser.add_argument(
+        "--factorlib",
+        type=Path,
+        default=None,
+        help="factorzoo 根目录（默认 artifacts/factorzoo/stock_1d）；用于重建前列丢失预检",
+    )
+    parser.add_argument(
         "--industry-path",
         type=Path,
         default=INDUSTRY_SW_PATH,
@@ -155,6 +211,7 @@ def main() -> None:
 
     t0 = time.perf_counter()
     try:
+        _precheck_factorlib_columns(args)
         if args.enrich_only:
             if not args.with_fundamentals and not args.with_industry:
                 raise SystemExit(
