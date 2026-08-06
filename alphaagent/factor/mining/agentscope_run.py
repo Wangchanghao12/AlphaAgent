@@ -26,6 +26,7 @@ from alphaagent.factor.mining.console import ConsolePrinter
 from alphaagent.factor.mining.loop import _NUDGE, _submit_record
 from alphaagent.factor.mining.operators import list_operator_names
 from alphaagent.factor.mining.prompts import build_system_prompt
+from alphaagent.factor.mining.registry_io import mining_registry_digest
 from alphaagent.factor.mining.submit import FactorSubmitService, default_factorlib_path
 from alphaagent.factor.mining.tools import FactorEvalTools
 
@@ -123,6 +124,7 @@ async def run_factor_mining_agentscope(
             holdout_end=ctx.holdout_end,
             label_col=ctx.label_col,
             include_fundamentals=ctx.include_fundamentals,
+            columns=ctx.columns,
         )
     )
 
@@ -141,6 +143,19 @@ async def run_factor_mining_agentscope(
         )
 
     factor_tools = FactorEvalTools(service, session_resp.session_id, submit_service=submit_service)
+    registry_digest_path = root / config.registry_path if config.enable_submit else None
+
+    def _registry_digest() -> str:
+        if registry_digest_path is None:
+            return ""
+        try:
+            return mining_registry_digest(registry_digest_path)
+        except Exception:  # noqa: BLE001
+            return ""
+
+    digest = _registry_digest()
+    if digest:
+        user_message = f"{user_message}\n\n{digest}"
     system_prompt = build_system_prompt(
         include_operator_catalog=include_operator_catalog,
         enable_submit=config.enable_submit,
@@ -236,7 +251,8 @@ async def run_factor_mining_agentscope(
         if not had_tools:
             if tool_call_rounds < config.min_tool_call_rounds_before_allow_stop:
                 _emit("nudge", {"turn": outer_turn, "tool_call_rounds": tool_call_rounds})
-                pending = _NUDGE_MSG
+                digest = _registry_digest()
+                pending = _NUDGE_MSG + (f"\n\n{digest}" if digest else "")
                 outer_turn += 1
                 continue
             end_reason = "no_tool_calls"
@@ -246,7 +262,11 @@ async def run_factor_mining_agentscope(
         if outer_turn >= config.max_turns:
             end_reason = "max_turns_reached"
             break
-        pending = "请基于当前工具结果继续迭代；需要时并行 eval_on_train_set，达标后 submit_factor。"
+        # 续轮时刷新已入库因子清单（并行多 lane 时其他进程会持续 submit）
+        digest = _registry_digest()
+        pending = "请基于当前工具结果继续迭代；需要时并行 eval_on_train_set，达标后 submit_factor。" + (
+            f"\n\n{digest}" if digest else ""
+        )
     else:
         end_reason = "max_turns_reached"
 

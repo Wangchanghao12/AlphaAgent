@@ -17,7 +17,7 @@ from alphaagent.factor.mining.schemas import (
     SessionCreateResponse,
 )
 from alphaagent.factor.mining.session import SessionStore
-from alphaagent.factor.eval import evaluate_factor_on_split
+from alphaagent.factor.eval import evaluate_factor_on_range, evaluate_factor_on_split
 
 
 class StockEvalService:
@@ -44,6 +44,7 @@ class StockEvalService:
             holdout_end=req.holdout_end,
             label_col=req.label_col,
             include_fundamentals=req.include_fundamentals,
+            columns=req.columns,
         )
         session = self.sessions.create(ctx)
         cols = list(session.panel.columns[:12])
@@ -110,7 +111,7 @@ class StockEvalService:
                     "error": "holdout 未配置（需 --holdout-start/--holdout-end）",
                     "error_type": "HoldoutNotConfigured",
                 }
-            return self._run_one(
+            out = self._run_one(
                 req.session_id,
                 split="holdout",
                 multi_line_expr=req.multi_line_expr,
@@ -119,3 +120,33 @@ class StockEvalService:
                 label_quantile_n=req.label_quantile_n,
                 expected_sign=req.expected_sign,
             )
+            # 跨年 holdout 附分年摘要，便于模型在 submit 前预判（submit 以最近一年为门槛）
+            if out.get("ok"):
+                from alphaagent.factor.mining.submit import yearly_holdout_windows
+
+                windows = yearly_holdout_windows(session.ctx.holdout_start, session.ctx.holdout_end)
+                if len(windows) > 1:
+                    by_year: list[dict[str, Any]] = []
+                    for year, w_start, w_end in windows:
+                        raw = evaluate_factor_on_range(
+                            session,
+                            start=w_start,
+                            end=w_end,
+                            multi_line_expr=req.multi_line_expr,
+                            factor_name=req.factor_name,
+                            split_label=f"holdout_{year}",
+                        )
+                        s = (raw.get("summary") or {}) if raw.get("ok") else {}
+                        by_year.append(
+                            {
+                                "year": year,
+                                "start": w_start,
+                                "end": w_end,
+                                "ic": s.get("ic"),
+                                "icir": s.get("icir"),
+                                "rank_ic": s.get("rank_ic"),
+                            }
+                        )
+                    out["holdout_by_year"] = by_year
+                    out["holdout_note"] = "submit 复检按年拆分：最近一年全门槛，更早年份 IC 符号翻转会被拦截。"
+            return out

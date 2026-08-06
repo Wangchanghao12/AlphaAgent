@@ -13,11 +13,13 @@ class SessionCreateRequest:
     train_start: str = "2019-01-01"
     train_end: str = "2021-12-31"
     val_start: str = "2022-01-01"
-    val_end: str = "2023-12-31"
+    val_end: str = "2024-12-31"
     holdout_start: str | None = None
     holdout_end: str | None = None
     label_col: str = DEFAULT_LABEL_COL
     include_fundamentals: bool = True
+    columns: tuple[str, ...] | None = None
+    """只载入这些 panel 列（lane 化内存优化，支持 funda_* 通配符）；None 载入全量。"""
 
 
 @dataclass

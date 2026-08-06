@@ -16,9 +16,9 @@ class StockEvalContext:
     train_start: str = "2019-01-01"
     train_end: str = "2021-12-31"
     val_start: str = "2022-01-01"
-    val_end: str = "2023-12-31"
+    val_end: str = "2024-12-31"
     holdout_start: str | None = None
-    """最终 OOS 窗（如 2026）；submit 时强制复检。None 表示不启用。"""
+    """最终 OOS 窗（如 2025-01-01~2026-07-31）；submit 时按自然年拆分复检，最近一年为门槛、更早年份为参考。None 表示不启用。"""
     holdout_end: str | None = None
     label_col: str = DEFAULT_LABEL_COL
     include_fundamentals: bool = True

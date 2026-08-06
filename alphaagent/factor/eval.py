@@ -190,18 +190,20 @@ def _detail_tables(
     return {"by_month": by_month_rows, "by_symbol": by_symbol_rows}
 
 
-def evaluate_factor_on_split(
+def _evaluate_factor_window(
     session,
     *,
-    split: str,
+    start: str,
+    end: str,
+    split_label: str,
     multi_line_expr: str,
     factor_name: str = "expr",
     include_detail_tables: bool = False,
     label_quantile_n: int = 10,
 ) -> dict[str, Any]:
-    """在 train/val 窗上评估多行 DSL，返回未格式化的原始结果 dict。"""
+    """在指定日期窗上评估多行 DSL，返回未格式化的原始结果 dict。"""
     ctx = session.ctx
-    metrics_start, metrics_end = ctx.split_range(split)
+    metrics_start, metrics_end = start, end
     # 指标只在 split 窗内统计；DSL 在 coverage_start~metrics_end 上求值以保留 TS/CHIP warmup
     cov_start, _ = ctx.coverage_range()
     panel_eval = slice_panel(session.panel, start=cov_start, end=metrics_end)
@@ -212,7 +214,7 @@ def evaluate_factor_on_split(
             "ok": False,
             "error": "评估窗内无 panel 数据",
             "error_type": "EmptyData",
-            "split": split,
+            "split": split_label,
             "date_range": date_range,
         }
 
@@ -221,7 +223,7 @@ def evaluate_factor_on_split(
             "ok": False,
             "error": f"panel 缺少标签列: {ctx.label_col}",
             "error_type": "MissingLabelColumn",
-            "split": split,
+            "split": split_label,
             "date_range": date_range,
         }
 
@@ -237,7 +239,7 @@ def evaluate_factor_on_split(
             "ok": False,
             "error": str(e),
             "error_type": type(e).__name__,
-            "split": split,
+            "split": split_label,
             "date_range": date_range,
         }
     except Exception as e:
@@ -245,7 +247,7 @@ def evaluate_factor_on_split(
             "ok": False,
             "error": str(e),
             "error_type": type(e).__name__,
-            "split": split,
+            "split": split_label,
             "date_range": date_range,
         }
 
@@ -254,7 +256,7 @@ def evaluate_factor_on_split(
             "ok": False,
             "error": f"因子输出须为 Series，得到 {type(out)!r}",
             "error_type": "TypeError",
-            "split": split,
+            "split": split_label,
             "date_range": date_range,
         }
 
@@ -293,7 +295,7 @@ def evaluate_factor_on_split(
 
     result: dict[str, Any] = {
         "ok": True,
-        "split": split,
+        "split": split_label,
         "date_range": date_range,
         "eval_wall_seconds": timing["total_ms"] / 1000.0,
         "timing_ms": timing,
@@ -306,3 +308,50 @@ def evaluate_factor_on_split(
     }
     result.update(detail)
     return result
+
+
+def evaluate_factor_on_split(
+    session,
+    *,
+    split: str,
+    multi_line_expr: str,
+    factor_name: str = "expr",
+    include_detail_tables: bool = False,
+    label_quantile_n: int = 10,
+) -> dict[str, Any]:
+    """在 train/val/holdout 窗上评估多行 DSL，返回未格式化的原始结果 dict。"""
+    start, end = session.ctx.split_range(split)
+    return _evaluate_factor_window(
+        session,
+        start=start,
+        end=end,
+        split_label=split,
+        multi_line_expr=multi_line_expr,
+        factor_name=factor_name,
+        include_detail_tables=include_detail_tables,
+        label_quantile_n=label_quantile_n,
+    )
+
+
+def evaluate_factor_on_range(
+    session,
+    *,
+    start: str,
+    end: str,
+    multi_line_expr: str,
+    factor_name: str = "expr",
+    include_detail_tables: bool = False,
+    label_quantile_n: int = 10,
+    split_label: str = "range",
+) -> dict[str, Any]:
+    """在任意日期窗上评估多行 DSL（如 holdout 分年复检）。"""
+    return _evaluate_factor_window(
+        session,
+        start=start,
+        end=end,
+        split_label=split_label,
+        multi_line_expr=multi_line_expr,
+        factor_name=factor_name,
+        include_detail_tables=include_detail_tables,
+        label_quantile_n=label_quantile_n,
+    )

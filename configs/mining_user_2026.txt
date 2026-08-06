@@ -8,7 +8,7 @@
 硬性要求（缺一不可才 submit）：
 1. train 上 IC/ICIR/月度稳健性达标（见 system prompt）
 2. val 上 IC 与 train **同号**，无灾难性衰减
-3. **holdout 2026**：`|IC|≥0.005`、`|ICIR|≥0.05`、`mean_ls` 与 IC **同号**（正 IC 时 LS>0，表示多空/头部相对等权有 alpha）
+3. **holdout 2026**：`|IC|≥0.005`、`|ICIR|≥0.05`、**t 值 = |ICIR|×√n_days ≥ 2**、`mean_ls` 与 IC **同号**（正 IC 时 LS>0，表示多空/头部相对等权有 alpha）；且 **IC 与 train∪val 同号**（靠 2026 方向翻转通过的因子会被回滚，勿 submit）
 4. 优先 **价量/秩化/波动** 类因子；**慎用 CHIP_***（极慢），除非 train+holdout 都明显更强
 
 工作方式：

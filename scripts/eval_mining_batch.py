@@ -60,6 +60,17 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("--min-holdout-ic", type=float, default=0.005, help="holdout 最小 |IC|（默认 0.005）")
     p.add_argument("--min-holdout-icir", type=float, default=0.05, help="holdout 最小 |ICIR|（默认 0.05）")
+    p.add_argument(
+        "--min-holdout-t",
+        type=float,
+        default=2.0,
+        help="holdout 最小 t 值 = |ICIR|×√n_days（默认 2.0；传 0 关闭）",
+    )
+    p.add_argument(
+        "--no-sign-consistency",
+        action="store_true",
+        help="默认要求 holdout IC 与 val IC 同号；加此开关关闭方向一致性检查",
+    )
     p.add_argument("--panel-cache", type=Path, default=None, help="预加载 panel 的 pickle（加速多次评测）")
     p.add_argument(
         "--workers",
@@ -79,8 +90,15 @@ def _pass_thresholds(
     summary: dict,
     min_ic: float,
     min_icir: float,
+    *,
+    min_t: float = 2.0,
+    ref_ic: float | None = None,
 ) -> tuple[bool, str]:
-    """检查 holdout 门槛（同 check_holdout_metrics 但可调参）。"""
+    """检查 holdout 门槛（同 check_holdout_metrics 但可调参）。
+
+    新增：t 值显著性（|ICIR|×√n_days ≥ min_t）与方向一致性（holdout IC 与
+    ref_ic（默认 val IC）同号，防止仅靠 holdout 方向翻转通过筛选）。
+    """
     ic = summary.get("ic")
     icir = summary.get("icir")
     reasons: list[str] = []
@@ -88,6 +106,15 @@ def _pass_thresholds(
         reasons.append(f"|ic|={abs(ic) if ic else 'NA'}")
     if icir is None or abs(float(icir)) <= min_icir:
         reasons.append(f"|icir|={abs(icir) if icir else 'NA'}")
+    n_days = summary.get("n_days")
+    if min_t > 0 and icir is not None and n_days:
+        t_stat = abs(float(icir)) * (int(n_days) ** 0.5)
+        if t_stat < min_t:
+            reasons.append(f"t={t_stat:.2f}<{min_t}")
+    if ref_ic is not None and ic is not None:
+        ref_f, ic_f = float(ref_ic), float(ic)
+        if ref_f != 0.0 and ic_f != 0.0 and (ref_f > 0) != (ic_f > 0):
+            reasons.append("sign_flip")
     mls = summary.get("mls_fmb") or {}
     mean_ls = mls.get("mean_ls")
     if ic is not None and mean_ls is not None:
@@ -146,10 +173,18 @@ def _evaluate_one(item: tuple[str, dict]) -> tuple[str, str | dict]:
         return ("error", f"{factor_id}: 求值失败 ({type(exc).__name__}: {exc})")
     ho_ok, ho_reason = _pass_thresholds(
         win_metrics["holdout"], args.min_holdout_ic, args.min_holdout_icir,
+        min_t=args.min_holdout_t,
+        ref_ic=None if args.no_sign_consistency else val.get("ic"),
     )
     ho = win_metrics["holdout"]
     val = win_metrics["val"]
     train = win_metrics["train"]
+    ho_icir, ho_n_days = ho.get("icir"), ho.get("n_days")
+    ho_t = (
+        abs(float(ho_icir)) * (int(ho_n_days) ** 0.5)
+        if ho_icir is not None and ho_n_days
+        else None
+    )
     row = {
         "factor_id": factor_id,
         "name": entry.get("name", factor_id),
@@ -162,6 +197,7 @@ def _evaluate_one(item: tuple[str, dict]) -> tuple[str, str | dict]:
         "val_coverage": val.get("coverage"),
         "ho_ic": ho.get("ic"),
         "ho_icir": ho.get("icir"),
+        "ho_t": ho_t,
         "ho_coverage": ho.get("coverage"),
         "ho_pass": ho_ok,
         "ho_reason": ho_reason,
@@ -261,12 +297,12 @@ def main() -> int:
                 errors.append(payload)
 
     # --- 打印表格 ---
-    sep = "-" * 130
+    sep = "-" * 138
     header = (
         f"{'factor_id':22s} {'source':8s} "
         f"{'train_IC':10s} {'ICIR':8s} {'cov':7s}  "
         f"{'val_IC':10s} {'ICIR':8s} {'cov':7s}  "
-        f"{'ho_IC':10s} {'ICIR':8s} {'cov':7s}  {'ho_pass?':10s}"
+        f"{'ho_IC':10s} {'ICIR':8s} {'t':6s} {'cov':7s}  {'ho_pass?':10s}"
     )
     print(sep)
     print(header)
@@ -277,7 +313,7 @@ def main() -> int:
             f"{fname:22s} {r['source']:8s} "
             f"{_short(r['train_ic'])} {_short(r['train_icir'],8)} {_pct(r['train_coverage'])}  "
             f"{_short(r['val_ic'])} {_short(r['val_icir'],8)} {_pct(r['val_coverage'])}  "
-            f"{_short(r['ho_ic'])} {_short(r['ho_icir'],8)} {_pct(r['ho_coverage'])}  "
+            f"{_short(r['ho_ic'])} {_short(r['ho_icir'],8)} {_short(r['ho_t'],6)} {_pct(r['ho_coverage'])}  "
             f"{'PASS' if r['ho_pass'] else 'FAIL':10s}"
         )
         print(line)
@@ -286,6 +322,9 @@ def main() -> int:
     # --- 汇总 ---
     n_pass = sum(1 for r in rows if r["ho_pass"])
     print(f"\n共 {len(rows)} 个因子，holdout 通过 {n_pass} 个")
+    sign_note = "否" if args.no_sign_consistency else "是(与 val IC 同号)"
+    print(f"门槛: |IC|≥{args.min_holdout_ic} |ICIR|>{args.min_holdout_icir} "
+          f"t≥{args.min_holdout_t} 方向一致={sign_note}")
     if errors:
         print(f"\n跳过 {len(errors)} 个（因表达式文件缺失/空）：")
         for e in errors:

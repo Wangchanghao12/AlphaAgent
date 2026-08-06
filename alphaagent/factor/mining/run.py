@@ -47,8 +47,11 @@ def run_factor_mining(
             train_end=ctx.train_end,
             val_start=ctx.val_start,
             val_end=ctx.val_end,
+            holdout_start=ctx.holdout_start,
+            holdout_end=ctx.holdout_end,
             label_col=ctx.label_col,
             include_fundamentals=ctx.include_fundamentals,
+            columns=ctx.columns,
         )
     )
 
@@ -68,6 +71,12 @@ def run_factor_mining(
         )
 
     tools = FactorEvalTools(service, session_resp.session_id, submit_service=submit_service)
+    if config.enable_submit:
+        from alphaagent.factor.mining.registry_io import mining_registry_digest
+
+        digest = mining_registry_digest(root / config.registry_path)
+        if digest:
+            user_message = f"{user_message}\n\n{digest}"
     system_prompt = build_system_prompt(
         include_operator_catalog=include_operator_catalog,
         enable_submit=config.enable_submit,

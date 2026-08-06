@@ -7,11 +7,12 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from alphaagent.factor.types import IngestPolicy
 from alphaagent.factor.ingest import ingest_factor, load_panel_for_zoo
 from alphaagent.factor.types import IngestResult
-from alphaagent.factor.eval import evaluate_factor_on_split
+from alphaagent.factor.eval import evaluate_factor_on_range
 from alphaagent.factor.mining.service import StockEvalService
 from alphaagent.factor.zoo import DEFAULT_FACTORLIB_ROOT, FactorZoo
 from alphaagent.factor.zoo.realign import panel_paths_match, realign_factorlib_to_panel
@@ -27,6 +28,12 @@ def slug_factor_id(name: str) -> str:
 CS_PEARSON_AUTOCORR_MIN = 0.6
 HOLDOUT_MIN_ABS_IC = 0.005
 HOLDOUT_MIN_ABS_ICIR = 0.05
+HOLDOUT_MIN_T = 2.0
+"""holdout t 值门槛：t = |ICIR| × √n_days（近似 Fama-MacBeth t）。"""
+
+
+def _is_finite_num(x: Any) -> bool:
+    return x is not None and np.isfinite(float(x))
 
 
 def check_delivery_metrics(metrics: dict[str, Any]) -> tuple[bool, list[str]]:
@@ -50,8 +57,17 @@ def check_delivery_metrics(metrics: dict[str, Any]) -> tuple[bool, list[str]]:
     return len(reasons) == 0, reasons
 
 
-def check_holdout_metrics(summary: dict[str, Any]) -> tuple[bool, list[str]]:
-    """holdout 窗（如 2026）：IC 须达标且 LS 与 IC 同向（相对等权有超额）。"""
+def check_holdout_metrics(
+    summary: dict[str, Any],
+    *,
+    ref_ic: float | None = None,
+    min_t: float = HOLDOUT_MIN_T,
+) -> tuple[bool, list[str]]:
+    """holdout 窗（如 2026）：IC 须达标、t 值显著、LS 与 IC 同向。
+
+    ``ref_ic`` 传入 train∪val 窗 IC 时，额外要求 holdout IC 与其同号
+    （防止仅靠 2026 方向翻转通过筛选的因子入库）。
+    """
     reasons: list[str] = []
     ic = summary.get("ic")
     if ic is None or abs(float(ic)) < HOLDOUT_MIN_ABS_IC:
@@ -59,6 +75,14 @@ def check_holdout_metrics(summary: dict[str, Any]) -> tuple[bool, list[str]]:
     icir = summary.get("icir")
     if icir is None or abs(float(icir)) < HOLDOUT_MIN_ABS_ICIR:
         reasons.append("holdout_icir")
+    n_days = summary.get("n_days")
+    if _is_finite_num(icir) and _is_finite_num(n_days) and int(n_days) > 0:
+        t_stat = abs(float(icir)) * (int(n_days) ** 0.5)
+        if t_stat < min_t:
+            reasons.append("holdout_t")
+    if ref_ic is not None and _is_finite_num(ref_ic) and float(ref_ic) != 0.0 and _is_finite_num(ic) and float(ic) != 0.0:
+        if (float(ic) > 0) != (float(ref_ic) > 0):
+            reasons.append("holdout_sign_flip")
     mls = summary.get("mls_fmb") or {}
     mean_ls = mls.get("mean_ls")
     if ic is not None and mean_ls is not None:
@@ -69,6 +93,98 @@ def check_holdout_metrics(summary: dict[str, Any]) -> tuple[bool, list[str]]:
             if ic_f < 0 and ls_f >= 0:
                 reasons.append("holdout_ls_vs_market")
     return len(reasons) == 0, reasons
+
+
+def yearly_holdout_windows(start: str, end: str) -> list[tuple[str, str, str]]:
+    """把 holdout 区间按自然年拆分，返回 [(年份标签, 窗起, 窗止), ...]（按时间升序）。"""
+    s = pd.Timestamp(start)
+    e = pd.Timestamp(end)
+    out: list[tuple[str, str, str]] = []
+    for year in range(s.year, e.year + 1):
+        w_start = max(s, pd.Timestamp(year, 1, 1))
+        w_end = min(e, pd.Timestamp(year, 12, 31))
+        out.append((str(year), w_start.strftime("%Y-%m-%d"), w_end.strftime("%Y-%m-%d")))
+    return out
+
+
+def _holdout_year_payload(raw: dict[str, Any]) -> dict[str, Any]:
+    summary = raw.get("summary") or {}
+    mls = summary.get("mls_fmb") or {}
+    return {
+        "date_range": raw.get("date_range"),
+        "ic": summary.get("ic"),
+        "icir": summary.get("icir"),
+        "rank_ic": summary.get("rank_ic"),
+        "n_days": summary.get("n_days"),
+        "mls_mean_ls": mls.get("mean_ls"),
+        "mls_nw_t_ls": mls.get("nw_t_ls"),
+    }
+
+
+def check_holdout_yearly(session, *, multi_line_expr: str, factor_id: str) -> dict[str, Any]:
+    """holdout 分年复检：最近一年全门槛（gate），更早年份仅 IC 符号翻转时拦截（参考）。
+
+    返回 ``{"passed": bool, "fail_reasons": [...], "gate_year": ..., "per_year": [...]}``。
+    """
+    ctx = session.ctx
+    windows = yearly_holdout_windows(ctx.holdout_start, ctx.holdout_end)
+    per_year: list[dict[str, Any]] = []
+    fail_reasons: list[str] = []
+    gate_ic: float | None = None
+
+    for year, w_start, w_end in windows:
+        raw = evaluate_factor_on_range(
+            session,
+            start=w_start,
+            end=w_end,
+            multi_line_expr=multi_line_expr,
+            factor_name=factor_id,
+            split_label=f"holdout_{year}",
+        )
+        if not raw.get("ok"):
+            return {
+                "ok": False,
+                "passed": False,
+                "fail_reasons": [f"holdout_{year}_eval_failed"],
+                "gate_year": windows[-1][0],
+                "per_year": per_year,
+                "error": raw.get("error", "holdout_eval_failed"),
+                "error_type": raw.get("error_type", "HoldoutEvalError"),
+            }
+        summary = raw.get("summary") or {}
+        entry = {"year": year, "gate": year == windows[-1][0], **_holdout_year_payload(raw)}
+        ok, reasons = check_holdout_metrics(summary)
+        entry["passed"] = ok
+        entry["fail_reasons"] = reasons
+        if entry["gate"]:
+            ic = summary.get("ic")
+            gate_ic = float(ic) if ic is not None and np.isfinite(float(ic)) else None
+            if not ok:
+                fail_reasons.extend(f"{year}:{r}" for r in reasons)
+        per_year.append(entry)
+
+    # 参考年（升序在 gate 年之前）的符号检查需要 gate_ic，放到 gate 年评估完后统一校验；
+    # 不达全门槛不拦截，仅 IC 与门槛年符号翻转视为不泛化
+    if gate_ic is not None:
+        for entry in per_year:
+            if entry["gate"]:
+                continue
+            ic = entry.get("ic")
+            if ic is None:
+                continue
+            ic_f = float(ic)
+            if np.isfinite(ic_f) and ic_f != 0.0 and gate_ic * ic_f < 0:
+                entry["fail_reasons"] = [*entry.get("fail_reasons", []), "holdout_sign_flip_vs_gate_year"]
+                entry["passed"] = False
+                fail_reasons.append(f"{entry['year']}:holdout_sign_flip_vs_gate_year")
+
+    return {
+        "ok": True,
+        "passed": len(fail_reasons) == 0,
+        "fail_reasons": fail_reasons,
+        "gate_year": windows[-1][0],
+        "per_year": per_year,
+    }
 
 
 class FactorSubmitService:
@@ -137,33 +253,27 @@ class FactorSubmitService:
         ctx = session.ctx
         holdout_payload: dict[str, Any] | None = None
         if ctx.holdout_start and ctx.holdout_end:
-            holdout_raw = evaluate_factor_on_split(
-                session,
-                split="holdout",
-                multi_line_expr=expr,
-                factor_name=factor_id,
-            )
-            if not holdout_raw.get("ok"):
+            holdout_check = check_holdout_yearly(session, multi_line_expr=expr, factor_id=factor_id)
+            if not holdout_check.get("ok", False):
                 return {
                     "ok": False,
                     "stored": False,
-                    "error": holdout_raw.get("error", "holdout_eval_failed"),
-                    "error_type": holdout_raw.get("error_type", "HoldoutEvalError"),
-                    "holdout_check": {"passed": False, "raw": holdout_raw},
+                    "error": holdout_check.get("error", "holdout_eval_failed"),
+                    "error_type": holdout_check.get("error_type", "HoldoutEvalError"),
+                    "holdout_check": {"passed": False, **holdout_check},
                 }
-            holdout_summary = holdout_raw.get("summary") or {}
-            holdout_ok, holdout_reasons = check_holdout_metrics(holdout_summary)
             holdout_payload = {
-                "date_range": holdout_raw.get("date_range"),
-                "summary": holdout_summary,
-                "passed": holdout_ok,
-                "fail_reasons": holdout_reasons,
+                "date_range": {"start": ctx.holdout_start, "end": ctx.holdout_end},
+                "passed": holdout_check["passed"],
+                "fail_reasons": holdout_check["fail_reasons"],
+                "gate_year": holdout_check["gate_year"],
+                "per_year": holdout_check["per_year"],
             }
-            if not holdout_ok:
+            if not holdout_check["passed"]:
                 return {
                     "ok": False,
                     "stored": False,
-                    "error": f"holdout_check_failed:{','.join(holdout_reasons)}",
+                    "error": f"holdout_check_failed:{','.join(holdout_check['fail_reasons'])}",
                     "error_type": "HoldoutCheckFailed",
                     "holdout_check": holdout_payload,
                 }
@@ -243,6 +353,33 @@ class FactorSubmitService:
                 overwrite=self.overwrite,
             )
 
+            # 方向一致性复核：gate 年 holdout IC 与 train∪val 全窗 IC 反号 → 视为方向翻转，回滚
+            if result.stored and holdout_payload is not None:
+                gate_year = holdout_payload.get("gate_year")
+                ho_ic = None
+                for entry in holdout_payload.get("per_year") or []:
+                    if entry.get("year") == gate_year:
+                        ho_ic = entry.get("ic")
+                        break
+                train_ic = result.metrics.get("ic")
+                if (
+                    _is_finite_num(train_ic)
+                    and _is_finite_num(ho_ic)
+                    and float(train_ic) != 0.0
+                    and float(ho_ic) != 0.0
+                    and (float(ho_ic) > 0) != (float(train_ic) > 0)
+                ):
+                    zoo.delete_factor(factor_id)
+                    result = IngestResult(
+                        factor_id=result.factor_id,
+                        col_idx=None,
+                        stored=False,
+                        skipped_reason="holdout_sign_flip_vs_trainval",
+                        metrics=result.metrics,
+                        similarity=result.similarity,
+                        extra=result.extra,
+                    )
+
             delivery_ok, delivery_reasons = check_delivery_metrics(result.metrics)
             rolled_back = False
             if result.stored and not delivery_ok:
@@ -302,6 +439,9 @@ class FactorSubmitService:
                     payload["error_type"] = "AlreadyExistsError"
                 elif result.skipped_reason.startswith("delivery_check_failed"):
                     payload["error_type"] = "DeliveryCheckError"
+                elif result.skipped_reason == "holdout_sign_flip_vs_trainval":
+                    payload["error_type"] = "HoldoutSignFlipError"
+                    payload["rolled_back"] = True
                 else:
                     payload["error_type"] = "IngestSkipped"
                 payload["error"] = result.skipped_reason

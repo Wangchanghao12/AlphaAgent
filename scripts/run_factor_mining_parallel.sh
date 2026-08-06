@@ -14,6 +14,9 @@
 #   bash scripts/run_factor_mining_parallel.sh --lanes momentum,volatility,volume,weekly
 #   bash scripts/run_factor_mining_parallel.sh --lanes momentum,fundamental --no-submit --max-turns 3
 #
+# 可选环境变量：MAX_TURNS（默认 8）、RETRY_ATTEMPTS（单 lane 失败重试次数，默认 3）。
+# 日志：logs/factor_mining/<lane>/cli_<时间戳>.log（每次启动一份，不覆盖历史）。
+#
 # 前置：同 run_factor_mining.sh（panel 已存在、mining 依赖已装、factorlib 已 init）。
 export OPENAI_API_KEY="sk-CdmOG9MFqExhObZialn7-Q"
 set -euo pipefail
@@ -46,9 +49,21 @@ LABEL_COL="${LABEL_COL:-label_10d_close_to_close}"
 LANES="${LANES:-momentum,volatility,volume,weekly}"
 MAX_PARALLEL_EVAL="${MAX_PARALLEL_EVAL:-4}"   # 每进程并行 eval 数（多个进程共用 8 核，别都设满）
 MAX_TOOL_WORKERS="${MAX_TOOL_WORKERS:-4}"
-MAX_TURNS="${MAX_TURNS:-5}"
+MAX_TURNS="${MAX_TURNS:-8}"
+RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-3}"
 NO_SUBMIT="${NO_SUBMIT:-0}"
 LOG_ROOT="${LOG_ROOT:-logs/factor_mining}"
+
+# 命令行 flag（覆盖环境变量默认值）
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --lanes)     LANES="${2:?--lanes 需要参数，如 momentum,volume}"; shift 2 ;;
+    --max-turns) MAX_TURNS="${2:?--max-turns 需要参数}"; shift 2 ;;
+    --panel)     PANEL="${2:?--panel 需要参数}"; shift 2 ;;
+    --no-submit) NO_SUBMIT=1; shift ;;
+    *) echo "未知参数: $1（可用：--lanes / --max-turns / --panel / --no-submit）" >&2; exit 2 ;;
+  esac
+done
 
 if [[ ! -f "$PANEL" ]]; then
   echo "错误：找不到 Panel: $PANEL" >&2
@@ -72,6 +87,27 @@ fi
 SCRIPT=scripts/factor_mining_agentscope.py
 mkdir -p "$LOG_ROOT"
 
+# 单 lane 执行器：失败自动重试（LLM 网关抖动等），日志追写到同一份带时间戳文件
+run_lane() {
+  local lane="$1" logfile="$2"
+  shift 2
+  local attempt=1 rc=0
+  while (( attempt <= RETRY_ATTEMPTS )); do
+    echo "[attempt $attempt/$RETRY_ATTEMPTS] $(date '+%F %T')" >> "$logfile"
+    rc=0
+    "${PY[@]}" "$SCRIPT" "$@" >> "$logfile" 2>&1 || rc=$?
+    if (( rc == 0 )); then
+      return 0
+    fi
+    echo "[retry] lane=$lane attempt=$attempt exit=$rc" >> "$logfile"
+    if (( attempt < RETRY_ATTEMPTS )); then
+      sleep 10
+    fi
+    attempt=$((attempt + 1))
+  done
+  return "$rc"
+}
+
 # 基础参数（所有进程共享）
 declare -a BASE
 BASE=(--panel "$PANEL" --label-col "$LABEL_COL" --max-turns "$MAX_TURNS")
@@ -87,14 +123,14 @@ for lane in "${LANE_LIST[@]}"; do
   [[ -z "$lane" ]] && continue
   logdir="$LOG_ROOT/$lane"
   mkdir -p "$logdir"
-  echo "[launch] $lane  ->  log=$logdir  (pid-file=$$)"
-  "${PY[@]}" "$SCRIPT" \
+  logfile="$logdir/cli_$(date +%Y%m%d_%H%M%S).log"
+  echo "[launch] $lane  ->  log=$logfile"
+  run_lane "$lane" "$logfile" \
     "${BASE[@]}" \
     --mine-lane "$lane" \
     --max-parallel-eval "$MAX_PARALLEL_EVAL" \
     --max-tool-workers "$MAX_TOOL_WORKERS" \
-    --log-dir "$logdir" \
-    >"$logdir/cli.log" 2>&1 &
+    --log-dir "$logdir" &
   PID=$!
   PIDS+=("$PID")
   PID_LANE[$PID]="$lane"
@@ -102,7 +138,7 @@ for lane in "${LANE_LIST[@]}"; do
 done
 
 echo
-echo "已启动 ${#PIDS[@]} 个挖掘进程。Ctrl-C 结束本轮；日志见 $LOG_ROOT/<lane>/cli.log"
+echo "已启动 ${#PIDS[@]} 个挖掘进程。Ctrl-C 结束本轮；日志见 $LOG_ROOT/<lane>/cli_<时间戳>.log"
 echo "----------------------------------------"
 
 FAIL=0
@@ -119,6 +155,6 @@ echo "----------------------------------------"
 if [[ "$FAIL" == "0" ]]; then
   echo "全部 lane 完成。"
 else
-  echo "存在失败 lane，请查看对应 $LOG_ROOT/<lane>/cli.log"
+  echo "存在失败 lane（已重试 $RETRY_ATTEMPTS 次），请查看对应 $LOG_ROOT/<lane>/cli_*.log"
   exit 1
 fi

@@ -24,6 +24,28 @@ def load_mining_registry(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def mining_registry_digest(path: Path, *, comment_chars: int = 60) -> str:
+    """已入库因子紧凑清单（factor_id + 截断 comment），注入挖掘 prompt 避免重复探索。
+
+    registry 不存在或为空时返回空串。
+    """
+    registry = load_mining_registry(path)
+    if not registry:
+        return ""
+    lines: list[str] = []
+    for fid in sorted(registry):
+        entry = registry[fid] if isinstance(registry[fid], dict) else {}
+        comment = str(entry.get("comment") or entry.get("name") or "").strip()
+        comment = " ".join(comment.split())  # 压缩空白/换行
+        if len(comment) > comment_chars:
+            comment = comment[: comment_chars - 1] + "…"
+        lines.append(f"- {fid}: {comment}" if comment else f"- {fid}")
+    return (
+        "【factorzoo 已入库因子（勿重复探索同逻辑；submit 会按截面相关查重）】\n"
+        + "\n".join(lines)
+    )
+
+
 def save_mining_registry(path: Path, registry: dict[str, Any]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

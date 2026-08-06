@@ -50,14 +50,14 @@ def _load_env() -> None:
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="LLM 股票因子挖掘（AgentScope 流式 CLI）")
     p.add_argument("--panel", default=str(PANEL_PATH))
-    p.add_argument("--train-start", default="2018-01-01")
-    p.add_argument("--train-end", default="2020-12-31")
-    p.add_argument("--val-start", default="2021-01-01")
-    p.add_argument("--val-end", default="2023-12-31")
+    p.add_argument("--train-start", default="2019-01-01")
+    p.add_argument("--train-end", default="2021-12-31")
+    p.add_argument("--val-start", default="2022-01-01")
+    p.add_argument("--val-end", default="2024-12-31")
     p.add_argument(
         "--holdout-start",
-        default="2026-01-01",
-        help="OOS holdout 起始（如 2026；submit 强制复检）",
+        default="2025-01-01",
+        help="OOS holdout 起始（submit 强制复检，按自然年拆分：最近一年为门槛、更早年份为参考）",
     )
     p.add_argument(
         "--holdout-end",

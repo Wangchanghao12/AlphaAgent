@@ -214,7 +214,8 @@ class FactorEvalTools:
 
                     "name": "eval_on_holdout_set",
 
-                    "description": "2026 等 holdout OOS 评估；须传 expected_sign。submit 前必须 holdout 达标（IC+LS 跑赢等权）。",
+                    "description": "holdout OOS 评估；须传 expected_sign。跨年窗会附 holdout_by_year 分年摘要；"
+                    "submit 前必须 holdout 达标（最近一年全门槛：IC/ICIR + LS 与 IC 同向；更早年份 IC 符号翻转会被拦截）。",
 
                     "parameters": _VAL_PARAMETERS,
 
