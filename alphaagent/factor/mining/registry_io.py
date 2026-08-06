@@ -35,7 +35,10 @@ def mining_registry_digest(path: Path, *, comment_chars: int = 60) -> str:
     lines: list[str] = []
     for fid in sorted(registry):
         entry = registry[fid] if isinstance(registry[fid], dict) else {}
-        comment = str(entry.get("comment") or entry.get("name") or "").strip()
+        name = str(entry.get("name") or "").strip()
+        comment = str(entry.get("comment") or "").strip()
+        if not comment or comment == name or comment == fid:
+            comment = ""  # 无说明或与 id/name 重复时不赘述
         comment = " ".join(comment.split())  # 压缩空白/换行
         if len(comment) > comment_chars:
             comment = comment[: comment_chars - 1] + "…"
