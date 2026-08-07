@@ -36,6 +36,7 @@ except ImportError:
 from alphaagent.core.paths import FACTORZOO_DIR, PANEL_PATH  # noqa: E402
 from alphaagent.factor.mining import MiningConfig  # noqa: E402
 from alphaagent.factor.mining.agentscope_run import run_factor_mining_agentscope  # noqa: E402
+from alphaagent.factor.mining.agentscope_tools import _force_shutdown_executor  # noqa: E402
 from alphaagent.factor.mining.context import StockEvalContext  # noqa: E402
 from alphaagent.factor.mining.lanes import build_lane_prompt_addendum, get_lane  # noqa: E402
 from alphaagent.factor.mining.seed_factors import build_user_message_with_seed_factors  # noqa: E402
@@ -212,18 +213,22 @@ def main() -> int:
         ingest_overwrite=args.ingest_overwrite,
     )
 
-    out = asyncio.run(
-        run_factor_mining_agentscope(
-            config,
-            user_message,
-            api_key=api_key,
-            base_url=base_url,
-            log_dir=args.log_dir,
-            include_operator_catalog=not args.no_operator_catalog,
-            extra_instructions=lane_extra,
-            verbose=not args.quiet,
+    try:
+        out = asyncio.run(
+            run_factor_mining_agentscope(
+                config,
+                user_message,
+                api_key=api_key,
+                base_url=base_url,
+                log_dir=args.log_dir,
+                include_operator_catalog=not args.no_operator_catalog,
+                extra_instructions=lane_extra,
+                verbose=not args.quiet,
+            )
         )
-    )
+    finally:
+        # 清理僵死评估线程，避免解释器 join 导致进程永不退出
+        _force_shutdown_executor()
     print(json.dumps(out, ensure_ascii=False, indent=2))
     return 0
 
