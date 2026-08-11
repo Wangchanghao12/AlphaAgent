@@ -66,6 +66,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--factor-ids", default=None,
                    help="逗号分隔的 factor_id；默认导出 registry 里全部 source=submit 的因子")
     p.add_argument("--out", type=Path, required=True, help="输出 parquet 路径")
+    p.add_argument("--no-merge", action="store_true",
+                   help="默认当 --out 已存在时会合并旧文件的因子列；加此开关改为完全覆盖")
     return p.parse_args()
 
 
@@ -118,6 +120,19 @@ def main() -> int:
     out["vt_symbol"] = out["instrument"].map(to_vt_symbol)
     out = out[["datetime", "vt_symbol", *ids]]
     out = out.dropna(how="all", subset=ids)  # 去掉全因子 NaN 的行（无数据的时间/票）
+
+    # 目标文件已存在时合并旧因子列（避免只导新因子时冲掉已有列）
+    if args.out.is_file() and not args.no_merge:
+        old = pd.read_parquet(args.out)
+        old_factor_cols = [c for c in old.columns if c not in ("datetime", "vt_symbol") and c not in ids]
+        if old_factor_cols:
+            out = out.merge(
+                old[["datetime", "vt_symbol", *old_factor_cols]],
+                on=["datetime", "vt_symbol"],
+                how="outer",
+            )
+            out = out.sort_values(["datetime", "vt_symbol"]).reset_index(drop=True)
+            print(f"已合并旧文件因子列: {old_factor_cols}")
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     out.to_parquet(args.out, index=False)
