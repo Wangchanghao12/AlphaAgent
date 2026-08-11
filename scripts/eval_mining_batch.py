@@ -72,6 +72,8 @@ def _parse_args() -> argparse.Namespace:
         help="默认要求 holdout IC 与 val IC 同号；加此开关关闭方向一致性检查",
     )
     p.add_argument("--panel-cache", type=Path, default=None, help="预加载 panel 的 pickle（加速多次评测）")
+    p.add_argument("--json-out", type=Path, default=None,
+                   help="把结果写成 JSON（供 sync_factor_status.py --from-eval 回填台账）")
     p.add_argument(
         "--workers",
         type=int,
@@ -171,14 +173,14 @@ def _evaluate_one(item: tuple[str, dict]) -> tuple[str, str | dict]:
         )
     except Exception as exc:  # noqa: BLE001
         return ("error", f"{factor_id}: 求值失败 ({type(exc).__name__}: {exc})")
-    ho_ok, ho_reason = _pass_thresholds(
-        win_metrics["holdout"], args.min_holdout_ic, args.min_holdout_icir,
-        min_t=args.min_holdout_t,
-        ref_ic=None if args.no_sign_consistency else val.get("ic"),
-    )
     ho = win_metrics["holdout"]
     val = win_metrics["val"]
     train = win_metrics["train"]
+    ho_ok, ho_reason = _pass_thresholds(
+        ho, args.min_holdout_ic, args.min_holdout_icir,
+        min_t=args.min_holdout_t,
+        ref_ic=None if args.no_sign_consistency else val.get("ic"),
+    )
     ho_icir, ho_n_days = ho.get("icir"), ho.get("n_days")
     ho_t = (
         abs(float(ho_icir)) * (int(ho_n_days) ** 0.5)
@@ -329,6 +331,21 @@ def main() -> int:
         print(f"\n跳过 {len(errors)} 个（因表达式文件缺失/空）：")
         for e in errors:
             print(f"  {e}")
+
+    if args.json_out is not None:
+        payload = {
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "windows": {
+                "train": (args.train_start, args.train_end),
+                "val": (args.val_start, args.val_end),
+                "holdout": (args.holdout_start, args.holdout_end),
+            },
+            "rows": rows,
+            "errors": errors,
+        }
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        args.json_out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\n结果已写入: {args.json_out}")
 
     return 0
 
