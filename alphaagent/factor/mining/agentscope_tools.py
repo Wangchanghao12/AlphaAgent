@@ -6,6 +6,7 @@ import os
 import time
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import Any
 
 from agentscope.message import TextBlock
@@ -39,10 +40,15 @@ def _dispatch_with_timeout(
     name: str,
     arguments: dict[str, Any],
     *,
+    max_workers: int = 1,
     timeout: float = EVAL_TIMEOUT_SECONDS,
 ) -> tuple[dict[str, Any], float]:
-    """在共享执行器上跑 dispatch，超时返回错误结果（僵死线程由退出清理处理）。"""
-    executor = _executor(1)
+    """在共享执行器上跑 dispatch，超时返回错误结果（僵死线程由退出清理处理）。
+
+    max_workers 透传给共享执行器（首次创建时生效），保证一个 lane 内
+    多个并发 eval 不会被串行化。
+    """
+    executor = _executor(max_workers)
     future = executor.submit(_dispatch_sync, tools, name, arguments)
     t0 = time.perf_counter()
     try:
@@ -91,7 +97,7 @@ def build_factor_eval_toolkit(tools: FactorEvalTools, *, max_workers: int = 4) -
         loop = __import__("asyncio").get_running_loop()
         result, _elapsed = await loop.run_in_executor(
             None,
-            _dispatch_with_timeout,
+            partial(_dispatch_with_timeout, max_workers=max_workers),
             tools,
             "eval_on_train_set",
             {
@@ -122,7 +128,7 @@ def build_factor_eval_toolkit(tools: FactorEvalTools, *, max_workers: int = 4) -
             args["expected_sign"] = expected_sign
         result, _elapsed = await loop.run_in_executor(
             None,
-            _dispatch_with_timeout,
+            partial(_dispatch_with_timeout, max_workers=max_workers),
             tools,
             "eval_on_val_set",
             args,
@@ -148,7 +154,7 @@ def build_factor_eval_toolkit(tools: FactorEvalTools, *, max_workers: int = 4) -
             args["expected_sign"] = expected_sign
         result, _elapsed = await loop.run_in_executor(
             None,
-            _dispatch_with_timeout,
+            partial(_dispatch_with_timeout, max_workers=max_workers),
             tools,
             "eval_on_holdout_set",
             args,
@@ -172,7 +178,7 @@ def build_factor_eval_toolkit(tools: FactorEvalTools, *, max_workers: int = 4) -
             loop = __import__("asyncio").get_running_loop()
             result, _elapsed = await loop.run_in_executor(
                 None,
-                _dispatch_with_timeout,
+                partial(_dispatch_with_timeout, max_workers=max_workers),
                 tools,
                 "submit_factor",
                 {
