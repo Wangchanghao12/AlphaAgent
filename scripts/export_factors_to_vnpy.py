@@ -135,7 +135,10 @@ def main() -> int:
             print(f"已合并旧文件因子列: {old_factor_cols}")
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(args.out, index=False)
+    # 原子写：先写临时文件再 rename，中途崩溃不会留下损坏的目标文件
+    tmp_path = args.out.with_name(args.out.name + ".tmp")
+    out.to_parquet(tmp_path, index=False)
+    tmp_path.replace(args.out)
     print(f"\n已导出 {len(out):,} 行 → {args.out} ({time.perf_counter()-t1:.1f}s)")
     print(f"列: {list(out.columns)}")
     print(f"vt_symbol 示例: {out['vt_symbol'].drop_duplicates().head(5).tolist()}")
