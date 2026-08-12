@@ -29,14 +29,15 @@ from alphaagent.data.panel import load_panel  # noqa: E402
 from alphaagent.factor.eval import evaluate_factor_windows  # noqa: E402
 from alphaagent.factor.mining.registry_io import load_mining_registry  # noqa: E402
 from alphaagent.factor.mining.submit import check_holdout_metrics  # noqa: E402
-from alphaagent.factor.types import DEFAULT_LABEL_COL  # noqa: E402
 
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="批量评估挖掘因子的 train/val/holdout 表现")
     p.add_argument("--registry", type=Path, default=ROOT / "artifacts/factorzoo/stock_1d/mining_delivered_registry.json")
     p.add_argument("--panel", type=Path, default=PANEL_PATH)
-    p.add_argument("--label-col", default=DEFAULT_LABEL_COL)
+    # 挖掘管线（run_factor_mining_parallel.sh / submit holdout 复检）统一用
+    # label_10d_close_to_close，批筛查必须同标签，否则 IC 不可比、方向可能假翻号
+    p.add_argument("--label-col", default="label_10d_close_to_close")
     p.add_argument("--train-start", default="2019-01-01")
     p.add_argument("--train-end", default="2023-12-31")
     p.add_argument("--val-start", default="2024-01-01")
