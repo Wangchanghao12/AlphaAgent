@@ -55,7 +55,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from alphaagent.core.paths import ARTIFACTS_DIR  # noqa: E402
+from alphaagent.core.paths import ARTIFACTS_DIR, PANEL_PATH  # noqa: E402
 
 DEFAULT_HOST = "http://127.0.0.1:8299"
 DEFAULT_OUT = ARTIFACTS_DIR / "minute" / "stock_1m"
@@ -140,7 +140,16 @@ def _normalize_mget_result(items, code: str) -> list[dict]:
 
 def sdk_connect(args: argparse.Namespace):
     """导入 stockdb 二进制模块并连接（本地服务或远程部署）。"""
-    from stockdb import init  # noqa: PLC0415 manylinux 包里的二进制模块
+    try:
+        from stockdb import init  # noqa: PLC0415 manylinux 包里的二进制模块
+    except ModuleNotFoundError as exc:
+        raise SystemExit(
+            "缺少 stockdb 二进制模块。部署方法：\n"
+            "  1) 下载 releases 的 manylinux 包（free-stockdb-manylinux-x64-*.tar）\n"
+            "  2) 把包内 pybao/stockdb.abi3.so 拷到本脚本目录或加入 PYTHONPATH\n"
+            "  3) 重跑 --probe-sdk\n"
+            "或者直接用 HTTP 后端（零依赖）：不加 --backend sdk 即可"
+        ) from exc
 
     rd = init(host=args.sdk_host, port=args.sdk_port, password=args.sdk_password)
     if rd is None:
@@ -269,29 +278,62 @@ def run_fetch_sdk(args: argparse.Namespace, codes: list[str], months: list[str])
 # ---------------------------------------------------------------------------
 # 股票池解析
 # ---------------------------------------------------------------------------
+def instruments_from_panel(panel_path: Path, start: str, end: str) -> list[str]:
+    """从已有 panel 提取 [start, end] 区间内出现过的 instrument（只读索引，不占内存）。
+
+    适用无 Tushare 权限环境：池子 = 现有因子管线的股票池（中证1000 成分并集）。
+    """
+    p = Path(panel_path)
+    if not p.is_file():
+        raise SystemExit(f"panel 不存在: {p}（--universe panel 需要已有 panel）")
+    idx = pd.read_parquet(p, columns=[]).index
+    if "instrument" not in (idx.names or []):
+        raise SystemExit(f"panel 索引缺 instrument 层: {idx.names}")
+    dt = idx.get_level_values("datetime")
+    mask = (dt >= pd.Timestamp(start)) & (dt <= pd.Timestamp(end))
+    return sorted(set(idx.get_level_values("instrument")[mask]))
+
+
 def resolve_universe(args: argparse.Namespace) -> list[str]:
-    """返回 6 位代码列表（已去重排序）。"""
+    """返回 6 位代码列表（已去重排序）。--extra-codes/--extra-codes-file 与基础池取并集。"""
+    extra: list[str] = []
+    if args.extra_codes:
+        extra += [s.strip() for s in args.extra_codes.split(",") if s.strip()]
+    if args.extra_codes_file:
+        extra += Path(args.extra_codes_file).read_text(encoding="utf-8").splitlines()
+
     if args.codes:
         raw = [s.strip() for s in args.codes.split(",") if s.strip()]
     elif args.codes_file:
         raw = Path(args.codes_file).read_text(encoding="utf-8").splitlines()
+    elif args.universe == "none":
+        raw = []
+    elif args.universe == "panel":
+        ts_codes = instruments_from_panel(args.panel, args.start, args.end)
+        if not ts_codes:
+            raise SystemExit("panel 在指定区间无数据")
+        print(f"股票池来源: panel {Path(args.panel).name} → {len(ts_codes)} 只")
+        raw = ts_codes
     else:
         from alphaagent.data.index_members import load_index_members, members_union
 
         cache = load_index_members(args.universe)
-        if cache.empty:
-            raise SystemExit(
-                f"本地无 {args.universe} 成分缓存（artifacts/index/），"
-                "请先在能连 Tushare 的环境生成，或用 --codes/--codes-file 指定"
-            )
-        ts_codes = members_union(cache, args.start, args.end)
+        ts_codes = members_union(cache, args.start, args.end) if not cache.empty else []
         if not ts_codes:
-            raise SystemExit(f"成分缓存在 {args.start}~{args.end} 区间无快照")
+            # 缓存缺失/未覆盖：联网 Tushare 按月拉 index_weight 快照并持久化
+            print(f"成分缓存缺失，从 Tushare 拉取 {args.universe} 月快照（需 .env 配置 token）...")
+            from alphaagent.data.index_members import resolve_index_members_cached
+
+            ts_codes = resolve_index_members_cached(args.universe, args.start, args.end)
+        if not ts_codes:
+            raise SystemExit(f"无法解析 {args.universe} 成分，可用 --codes/--codes-file 显式指定")
         raw = ts_codes
 
-    codes = sorted({s.split(".")[0].zfill(6) for s in raw if s.strip()})
+    codes = sorted({s.split(".")[0].zfill(6) for s in raw if s.strip()} | {s.split(".")[0].zfill(6) for s in extra if s.strip()})
     if not codes:
         raise SystemExit("股票池为空")
+    if extra:
+        print(f"已并入额外代码 {len({s.split('.')[0] for s in extra if s.strip()})} 个 → 合计 {len(codes)} 只")
     return codes
 
 
@@ -483,9 +525,14 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--out", type=Path, default=DEFAULT_OUT, help="输出目录")
     p.add_argument("--start", default="2025-01-01", help="起始日 YYYY-MM-DD")
     p.add_argument("--end", default=pd.Timestamp.today().strftime("%Y-%m-%d"))
-    p.add_argument("--universe", default="zz1000", help="成分缓存股票池（默认 zz1000）")
+    p.add_argument("--universe", default="zz1000",
+                   help="股票池：zz1000 等指数（成分缓存/Tushare）、panel（已有 panel 免联网）或 none（仅用显式代码）")
+    p.add_argument("--panel", type=Path, default=PANEL_PATH, help="--universe panel 时的 panel 路径")
     p.add_argument("--codes", default=None, help="逗号分隔 6 位代码（覆盖 universe）")
-    p.add_argument("--codes-file", type=Path, default=None, help="代码文件，每行一个")
+    p.add_argument("--codes-file", type=Path, default=None, help="代码文件，每行一个（覆盖 universe）")
+    p.add_argument("--extra-codes", default=None, help="逗号分隔 6 位代码，与基础池取并集")
+    p.add_argument("--extra-codes-file", type=Path, default=None,
+                   help="额外代码文件（与基础池取并集），如 configs/universe/hs300_cons_*.txt")
     p.add_argument("--workers", type=int, default=8, help="并发请求数（http 后端）")
     p.add_argument("--force", action="store_true", help="覆盖已有日期分区（默认合并去重）")
     p.add_argument("--verbose", action="store_true", help="打印每次落盘明细")
