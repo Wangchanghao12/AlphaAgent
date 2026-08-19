@@ -75,6 +75,8 @@ def stockdb_get(host: str, key_pattern: str, *, timeout: float = 60.0) -> list[d
         try:
             with urllib.request.urlopen(url, timeout=timeout) as resp:
                 payload = json.loads(resp.read().decode("utf-8"))
+            if payload is None:  # 高并发下服务偶发返回 null，视为可重试瞬时故障
+                raise RuntimeError("server returned null")
             if isinstance(payload, dict):
                 if "error" in payload:  # 业务错误 {"error": ...}
                     raise RuntimeError(f"stockdb error: {payload['error']}")
