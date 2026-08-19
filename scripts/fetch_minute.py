@@ -141,19 +141,34 @@ def _normalize_mget_result(items, code: str) -> list[dict]:
 
 
 def sdk_connect(args: argparse.Namespace):
-    """导入 stockdb 二进制模块并连接（本地服务或远程部署）。"""
+    """导入 stockdb 二进制模块并连接（本地服务或远程部署）。
+
+    优先用 stock_sdk 包装层（带默认连接管理），否则回退原生 stockdb.init。
+    """
+    try:
+        import stock_sdk  # noqa: PLC0415 pybao 里的包装层（from stockdb import *）
+
+        rd = stock_sdk.init(host=args.sdk_host, port=args.sdk_port,
+                            socket_timeout=args.sdk_timeout,
+                            password=args.sdk_password or None)
+        if rd is not None:
+            return rd
+    except ModuleNotFoundError:
+        pass
+
     try:
         from stockdb import init  # noqa: PLC0415 manylinux 包里的二进制模块
     except ModuleNotFoundError as exc:
         raise SystemExit(
             "缺少 stockdb 二进制模块。部署方法：\n"
-            "  1) 下载 releases 的 manylinux 包（free-stockdb-manylinux-x64-*.tar）\n"
-            "  2) 把包内 pybao/stockdb.abi3.so 拷到本脚本目录或加入 PYTHONPATH\n"
-            "  3) 重跑 --probe-sdk\n"
+            "  1) 把 manylinux 包 pybao/ 下的 stockdb.abi3.so + zb_core.abi3.so"
+            "(+ 可选 stock_sdk.py) 放到项目根目录或 PYTHONPATH\n"
+            "  2) 重跑 --probe-sdk\n"
             "或者直接用 HTTP 后端（零依赖）：不加 --backend sdk 即可"
         ) from exc
 
-    rd = init(host=args.sdk_host, port=args.sdk_port, password=args.sdk_password)
+    rd = init(host=args.sdk_host, port=args.sdk_port,
+              socket_timeout=args.sdk_timeout, password=args.sdk_password or None)
     if rd is None:
         from stockdb import rd as rd_default  # noqa: PLC0415
 
@@ -207,6 +222,37 @@ def _pipe_do(pp):
     return raw
 
 
+def _fetch_batch(rd, batch: list, retries: int = 3):
+    """pipe 批量拉取：长度对齐校验 + 重试 + 对半拆批降级。
+
+    返回 (results, failed_tasks)；results 与 batch 等长（失败位置为 None）。
+    """
+    last_exc: Exception | None = None
+    for attempt in range(retries):
+        try:
+            pp = rd.pipe()
+            for c, m in batch:
+                pp.mget("分钟k", c, f"{m}*")
+            raw = _pipe_do(pp)
+            if not isinstance(raw, list):
+                raw = [raw]
+            if len(raw) == len(batch):
+                return raw, []
+            last_exc = RuntimeError(f"pipe 返回 {len(raw)} 项 != 请求 {len(batch)} 项")
+        except Exception as exc:  # noqa: BLE001 网络/服务瞬时故障
+            last_exc = exc
+        if attempt + 1 < retries:
+            time.sleep(min(10.0, 1.5 * (2**attempt)))
+
+    if len(batch) == 1:
+        return [None], [batch[0]]
+    # 拆半递归降级，定位坏批并尽量保住好数据
+    mid = len(batch) // 2
+    r1, f1 = _fetch_batch(rd, batch[:mid], retries)
+    r2, f2 = _fetch_batch(rd, batch[mid:], retries)
+    return r1 + r2, f1 + f2
+
+
 def run_fetch_sdk(args: argparse.Namespace, codes: list[str], months: list[str]) -> int:
     """SDK 后端：pipe 批量拉取，主线程落盘（无跨线程 HTTP，吞吐更高）。"""
     start_int = int(args.start.replace("-", ""))
@@ -223,20 +269,21 @@ def run_fetch_sdk(args: argparse.Namespace, codes: list[str], months: list[str])
     )
 
     t0 = time.perf_counter()
-    stats = {"queries": 0, "empty": 0, "rows": 0}
+    stats = {"queries": 0, "empty": 0, "rows": 0, "failed": 0}
     bar_counts: dict[int, int] = {}
+    failed_tasks: list = []
 
     for bi, batch in enumerate(batches, start=1):
-        pp = rd.pipe()
-        for c, m in batch:
-            pp.mget("分钟k", c, f"{m}*")
-        raw = _pipe_do(pp)
-        if not isinstance(raw, list):
-            raw = [raw]
+        raw, batch_failed = _fetch_batch(rd, batch)
+        if batch_failed:
+            stats["failed"] += len(batch_failed)
+            failed_tasks += batch_failed
 
         buffer: dict[int, list[pd.DataFrame]] = {}
         for (c, m), items in zip(batch, raw):
             stats["queries"] += 1
+            if items is None:  # 重试/拆批后仍失败
+                continue
             recs = _normalize_mget_result(items, c)
             if not recs:
                 stats["empty"] += 1
@@ -267,9 +314,16 @@ def run_fetch_sdk(args: argparse.Namespace, codes: list[str], months: list[str])
             )
 
     print(
-        f"\n完成: {stats['queries']} 查询, {stats['rows']:,} 行, empty={stats['empty']}, "
+        f"\n完成: {stats['queries']} 查询, {stats['rows']:,} 行, "
+        f"empty={stats['empty']} failed={stats['failed']}, "
         f"elapsed={_format_elapsed(time.perf_counter() - t0)}"
     )
+    if failed_tasks:
+        print(f"WARN: {len(failed_tasks)} 个 (股,月) 失败，重跑同命令可补齐:", flush=True)
+        for c, m in failed_tasks[:20]:
+            print(f"    {c} {m}", flush=True)
+        if len(failed_tasks) > 20:
+            print(f"    ... 另有 {len(failed_tasks) - 20} 个", flush=True)
     if bar_counts:
         dist = ", ".join(f"{k}根:{v}" for k, v in sorted(bar_counts.items()))
         print(f"每日 bar 数分布(股×日): {dist}（预期 241，偏离项建议 --check 抽查）")
@@ -522,6 +576,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--sdk-host", default="127.0.0.1", help="stockdb 服务地址（sdk 后端）")
     p.add_argument("--sdk-port", type=int, default=8299, help="stockdb 服务端口（sdk 后端）")
     p.add_argument("--sdk-password", default="", help="stockdb 密码（默认空）")
+    p.add_argument("--sdk-timeout", type=int, default=60, help="SDK socket 超时秒数（大 pipe 批需放宽）")
     p.add_argument("--pipe-batch", type=int, default=500, help="每个 pipe 批的查询数（sdk 后端）")
     p.add_argument("--probe-sdk", action="store_true", help="小样本探测 SDK 连接/pipe 语义后退出")
     p.add_argument("--out", type=Path, default=DEFAULT_OUT, help="输出目录")
