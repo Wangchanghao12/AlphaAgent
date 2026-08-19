@@ -20,6 +20,7 @@ artifacts/panel/
 artifacts/fundamental/
 artifacts/industry/
 artifacts/index/
+artifacts/minute/
 logs/
 
 # 数据发布打包产物
