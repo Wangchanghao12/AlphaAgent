@@ -98,8 +98,12 @@ def _derive_base_columns(df: pd.DataFrame) -> pd.DataFrame:
     if "isTrade" in df.columns:
         df = df.rename(columns={"isTrade": "is_trade", "notST": "not_st"})
 
-    vol = df["volume"].replace(0, np.nan)
-    df["vwap"] = df["amount"] / vol
+    # 成交量/成交额任一非正 → vwap 无效。
+    # 归档数据存在 amount=0 且 volume>0 的脏行（约每天 1 行），若放行会产生
+    # vwap=0，下游 DIVIDE($close-vwap, vwap) 除零得 inf，污染截面类算子。
+    vol = df["volume"].where(df["volume"] > 0)
+    amt = df["amount"].where(df["amount"] > 0)
+    df["vwap"] = amt / vol
     df["adj_vwap"] = df["vwap"] * df["adjfactor"]
     return df
 

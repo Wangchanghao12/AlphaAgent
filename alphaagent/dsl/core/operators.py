@@ -1844,6 +1844,14 @@ def TS_TROUGH(df: pd.DataFrame, confirm_window: int = 10) -> pd.DataFrame:
 _CS_MIN_PAIRS: int = 2
 
 
+def _finite_mask(s: pd.Series) -> pd.Series:
+    """截面有效值掩码：排除 NaN **与 ±inf**。
+
+    注意 ``notna()`` 会把 inf 当有效值：单个 inf 会让均值/标准差变 inf/nan，
+    进而把整个截面打成 NaN（如 CS_ZSCORE），故截面算子统一用 isfinite。"""
+    return pd.Series(np.isfinite(s.to_numpy(dtype=float, copy=False)), index=s.index)
+
+
 def _validate_cs_panel(df: pd.DataFrame, *, name: str) -> None:
     if not isinstance(df, pd.DataFrame):
         raise TypeError(f"{name} 第一参数须为面板 DataFrame")
@@ -1858,11 +1866,11 @@ def _validate_cs_panel(df: pd.DataFrame, *, name: str) -> None:
 def RANK(df: pd.DataFrame) -> pd.DataFrame:
     """每个 **datetime 截面**内的百分位秩 ∈ [0, 1]（``rank(pct=True, method='average')``）。
 
-    与 ``TS_RANK``（单 instrument 窗口内时序秩）不同。NaN 不参与排序；截面无有效值时为 NaN。"""
+    与 ``TS_RANK``（单 instrument 窗口内时序秩）不同。NaN/±inf 不参与排序；截面无有效值时为 NaN。"""
     _validate_cs_panel(df, name="RANK")
 
     def _rank_cs(s: pd.Series) -> pd.Series:
-        finite = s.notna()
+        finite = _finite_mask(s)
         if not finite.any():
             return pd.Series(np.nan, index=s.index, dtype=np.float32)
         out = pd.Series(np.nan, index=s.index, dtype=np.float32)
@@ -1875,12 +1883,12 @@ def RANK(df: pd.DataFrame) -> pd.DataFrame:
 def CS_ZSCORE(df: pd.DataFrame, ddof: int = 1) -> pd.DataFrame:
     """截面标准化：``(x - mean) / std``（按 datetime 分组）。
 
-    有效样本 < 2 或 std=0 时该截面输出 NaN；输入 NaN 保持 NaN。"""
+    有效样本 < 2 或 std=0 时该截面输出 NaN；输入 NaN/±inf 视为无效。"""
     _validate_cs_panel(df, name="CS_ZSCORE")
     d = int(ddof)
 
     def _zscore_cs(s: pd.Series) -> pd.Series:
-        finite = s.notna()
+        finite = _finite_mask(s)
         n = int(finite.sum())
         if n < _CS_MIN_PAIRS:
             return pd.Series(np.nan, index=s.index, dtype=np.float32)
@@ -1901,7 +1909,7 @@ def CS_DEMEAN(df: pd.DataFrame) -> pd.DataFrame:
     _validate_cs_panel(df, name="CS_DEMEAN")
 
     def _demean_cs(s: pd.Series) -> pd.Series:
-        finite = s.notna()
+        finite = _finite_mask(s)
         if not finite.any():
             return pd.Series(np.nan, index=s.index, dtype=np.float32)
         mu = float(s.loc[finite].mean())
@@ -1927,7 +1935,7 @@ def CS_WINSORIZE(
         raise ValueError("CS_WINSORIZE 要求 0 <= lower_pct < upper_pct <= 1")
 
     def _winsor_cs(s: pd.Series) -> pd.Series:
-        finite = s.notna()
+        finite = _finite_mask(s)
         if not finite.any():
             return pd.Series(np.nan, index=s.index, dtype=np.float32)
         valid = s.loc[finite]
@@ -1953,7 +1961,7 @@ def CS_BUCKET(df: pd.DataFrame, n_bins: int) -> pd.DataFrame:
         raise ValueError("CS_BUCKET 要求 n_bins >= 2")
 
     def _bucket_cs(s: pd.Series) -> pd.Series:
-        finite = s.notna()
+        finite = _finite_mask(s)
         if not finite.any():
             return pd.Series(np.nan, index=s.index, dtype=np.float32)
         if int(finite.sum()) < n:
