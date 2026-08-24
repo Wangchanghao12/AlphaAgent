@@ -244,6 +244,7 @@ def merge_to_hq(
         adj["ts_code"] = adj["ts_code"].astype(str)
         adj["datetime"] = pd.to_datetime(adj["trade_date"])
         adj = adj.set_index(["datetime", "ts_code"])["adj_factor"]
+        adj = adj[~adj.index.duplicated(keep="last")]  # 去重，防止 non-unique multi-index
         # 对齐到 hq 索引
         hq_index = hq.index
         inst_level = hq_index.get_level_values("instrument")
@@ -281,6 +282,7 @@ def merge_to_hq(
         # 只保留需要的列
         keep_cols = ["float_cap", "tot_cap"] + [c for c in DAILY_BASIC_COLUMNS if c in db.columns]
         db = db[keep_cols]
+        db = db[~db.index.duplicated(keep="last")]  # 去重
 
         hq_index = hq.index
         inst_level = hq_index.get_level_values("instrument")
@@ -308,6 +310,7 @@ def merge_to_hq(
         # stock_st API 返回 is_st 列（1=ST）
         if "is_st" in st.columns:
             st_flag = st.set_index(["datetime", "ts_code"])["is_st"]
+            st_flag = st_flag[~st_flag.index.duplicated(keep="last")]  # 去重
         else:
             st_flag = pd.Series(dtype=float)
 
