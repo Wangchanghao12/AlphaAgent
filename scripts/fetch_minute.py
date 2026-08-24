@@ -599,6 +599,8 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):  # 后台重定向到日志文件时保持行缓冲，避免看不到进度
+        sys.stdout.reconfigure(line_buffering=True)
     args = _parse_args()
     if args.probe_sdk:
         return sdk_probe(args)

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Tushare 客户端
-- 从项目根目录 .env 加载 TUSHARE_TOKEN
-- 返回 pro_api 对象供 data 层调用
+- 优先使用 REST 代理（TUSHARE_REST_URL + TUSHARE_API_KEY，GET + X-API-Key 头）
+- 未配置 REST 时退回 SDK 模式（TUSHARE_TOKEN + TUSHARE_HTTP_URL）
 - 网络超时 / 限流等可恢复错误自动重试（指数退避）
 """
 
@@ -14,8 +14,10 @@ import time
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
+import pandas as pd
 import requests
 import tushare as ts
+import urllib3
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -24,6 +26,7 @@ ENV_FILE = ROOT / ".env"
 T = TypeVar("T")
 
 DEFAULT_HTTP_URL = "https://api.tushare.pro"
+DEFAULT_REST_URL = "https://pcd.mobcvb.cn/tushare/pro"
 
 RETRYABLE_NETWORK_ERRORS = (
     requests.exceptions.ConnectionError,
@@ -103,6 +106,14 @@ def _read_http_url() -> str:
     return url.strip().strip('"').strip("'").rstrip("/")
 
 
+def _read_rest_config() -> tuple[str, str]:
+    """读取 REST 代理配置，返回 (url, api_key)；未配置则返回空字符串。"""
+    load_dotenv(ENV_FILE)
+    url = os.getenv("TUSHARE_REST_URL", "").strip().strip('"').strip("'").rstrip("/")
+    key = os.getenv("TUSHARE_API_KEY", "").strip().strip('"').strip("'")
+    return url, key
+
+
 def _exception_text(exc: BaseException) -> str:
     parts = [str(exc), repr(exc)]
     if getattr(exc, "args", None):
@@ -160,6 +171,48 @@ def call_with_retry(
     raise last_exc
 
 
+class _RestClient:
+    """REST 代理客户端：GET {base_url}/{api_name}?params + X-API-Key 头。
+
+    接口与 Tushare SDK pro_api 兼容：``client.daily(trade_date=...)``
+    等价于 ``client.query('daily', trade_date=...)``，可被 _RetryingPro 包装。
+    """
+
+    def __init__(self, base_url: str, api_key: str, *, timeout: int = 60) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        self._session = requests.Session()
+        self._session.headers["X-API-Key"] = api_key
+
+    def query(self, api_name: str, fields: str = "", **params: Any) -> pd.DataFrame:
+        clean = {k: v for k, v in params.items() if v is not None and v != ""}
+        if fields:
+            clean["fields"] = fields
+        resp = self._session.get(
+            f"{self.base_url}/{api_name}",
+            params=clean,
+            verify=False,
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        if payload.get("code") != 0:
+            raise RuntimeError(f"{api_name} REST error: {payload.get('msg')}")
+        data = payload.get("data") or {}
+        return pd.DataFrame(data.get("items") or [], columns=data.get("fields"))
+
+    def __getattr__(self, name: str) -> Any:
+        """将 client.daily(trade_date=...) 路由到 self.query('daily', ...)。"""
+        if name.startswith("_"):
+            raise AttributeError(name)
+
+        def _method(fields: str = "", **kwargs: Any) -> pd.DataFrame:
+            return self.query(name, fields=fields, **kwargs)
+
+        return _method
+
+
 class _RetryingPro:
     """包装 Tushare pro_api，为各接口调用注入重试。"""
 
@@ -178,18 +231,28 @@ class _RetryingPro:
 
 
 def get_pro():
-    """初始化并返回 Tushare pro_api（带自动重试）。"""
+    """初始化并返回 Tushare 客户端（带自动重试）。
+
+    优先使用 REST 模式（TUSHARE_REST_URL + TUSHARE_API_KEY）；
+    未配置时退回 SDK 模式（TUSHARE_TOKEN + TUSHARE_HTTP_URL）。
+    """
+    timeout = int(_config["timeout"])
+    max_retries = int(_config["max_retries"])
+
+    rest_url, api_key = _read_rest_config()
+    if rest_url and api_key:
+        client: Any = _RestClient(rest_url, api_key, timeout=timeout)
+        return client if max_retries <= 0 else _RetryingPro(client)
+
+    # 退回 SDK 模式
     token = _read_token()
     if not token:
         raise ValueError(
-            f"未找到 TUSHARE_TOKEN。请在 {ENV_FILE} 中配置，"
-            "格式: TUSHARE_TOKEN=your_token"
+            f"未找到 Tushare 凭据。请在 {ENV_FILE} 中配置 "
+            "TUSHARE_REST_URL + TUSHARE_API_KEY（REST 模式）"
+            "或 TUSHARE_TOKEN（SDK 模式）"
         )
-    timeout = int(_config["timeout"])
     ts.set_token(token)
     pro = ts.pro_api(timeout=timeout)
     pro._DataApi__http_url = _read_http_url()
-    max_retries = int(_config["max_retries"])
-    if max_retries <= 0:
-        return pro
-    return _RetryingPro(pro)
+    return pro if max_retries <= 0 else _RetryingPro(pro)
