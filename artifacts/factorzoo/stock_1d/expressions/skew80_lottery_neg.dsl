@@ -1,0 +1,1 @@
+CS_NEUTRALIZE(RANK(TS_SKEW($ret, 80)), CS_BUCKET(LOG($float_cap), 10))

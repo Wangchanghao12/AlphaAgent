@@ -1,0 +1,6 @@
+ter = TS_EFFICIENCY_RATIO($turnover_rate, 120)
+vc = TS_CORR($vwap, $volume, 15)
+t_neut = CS_NEUTRALIZE(RANK(NEG(ter)), CS_BUCKET(LOG($float_cap), 10))
+c_neut = CS_NEUTRALIZE(RANK(NEG(vc)), CS_BUCKET(LOG($float_cap), 10))
+comb = ADD(CS_ZSCORE(t_neut), CS_ZSCORE(c_neut))
+RANK(CS_WINSORIZE(comb, 0.01, 0.99))

@@ -1,0 +1,6 @@
+ac = TS_CORR(ABS($ret), DELAY(ABS($ret), 1), 20)
+ac_r = RANK(CS_NEUTRALIZE(CS_WINSORIZE(ac, 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10)))
+rv15 = TS_STD($ret, 15)
+vov = TS_STD(rv15, 60)
+vov_r = RANK(CS_NEUTRALIZE(CS_WINSORIZE(vov, 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10)))
+NEG(ADD(ac_r, vov_r))

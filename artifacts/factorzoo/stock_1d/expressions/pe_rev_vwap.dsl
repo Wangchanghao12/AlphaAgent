@@ -1,0 +1,5 @@
+pe = TS_PERMUTATION_ENTROPY($adj_close, 20, 3)
+vd = DIVIDE(SUBTRACT($close, $vwap), $vwap)
+rev = NEG(CS_ZSCORE(TS_MEAN(vd, 20)))
+raw = ADD(NEG(CS_ZSCORE(pe)), rev)
+CS_WINSORIZE(raw, 0.02, 0.98)

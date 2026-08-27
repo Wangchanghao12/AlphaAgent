@@ -1,0 +1,8 @@
+sk = TS_SKEW($ret, 60)
+vol20 = TS_STD($ret, 20)
+vol240 = TS_STD($ret, 240)
+tr = DIVIDE(ADD(vol20, 1e-9), ADD(vol240, 1e-9))
+capk = CS_BUCKET(LOG($float_cap), 10)
+skn = CS_NEUTRALIZE(CS_ZSCORE(CS_WINSORIZE(NEG(sk), 0.01, 0.99)), capk)
+trn = CS_NEUTRALIZE(CS_ZSCORE(CS_WINSORIZE(NEG(tr), 0.01, 0.99)), capk)
+FILLNA(ADD(MULTIPLY(skn, 2), trn), 0.0)

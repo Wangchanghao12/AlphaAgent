@@ -1,0 +1,8 @@
+vd = DIVIDE(SUBTRACT($close, $vwap), $vwap)
+rev = NEG(CS_ZSCORE(TS_MEAN(vd, 20)))
+mom120 = TS_MEAN($ret, 120)
+mom20 = TS_MEAN($ret, 20)
+mom = CS_ZSCORE(SUBTRACT(mom120, mom20))
+wke = CS_ZSCORE(TS_EFFICIENCY_RATIO($adj_close@1w, 26))
+raw = ADD(ADD(rev, MULTIPLY(mom, 0.5)), MULTIPLY(wke, 0.5))
+CS_WINSORIZE(raw, 0.02, 0.98)

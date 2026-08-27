@@ -1,0 +1,5 @@
+rv15 = TS_STD($ret, 15)
+vov = TS_STD(rv15, 60)
+w = CS_WINSORIZE(vov, 0.01, 0.99)
+neu = CS_NEUTRALIZE(w, CS_BUCKET(LOG($float_cap), 10))
+RANK(NEG(neu))

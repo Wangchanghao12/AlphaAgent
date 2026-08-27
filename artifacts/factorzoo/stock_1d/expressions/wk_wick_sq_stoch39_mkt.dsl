@@ -1,0 +1,10 @@
+# 三腿+市值中性：上影线无抛压(10周) + 振幅收缩(6/24) + 39周区间位置
+wk_up_wick = DIVIDE(SUBTRACT($high@1w, MAX($close@1w, $open@1w)), SUBTRACT($high@1w, $low@1w))
+wk_wick = NEG(TS_MEAN(wk_up_wick, 10))
+wk_rng = SUBTRACT($high@1w, $low@1w)
+wk_sq = NEG(DIVIDE(TS_MEAN(wk_rng, 6), TS_MEAN(wk_rng, 24)))
+wk_hi39 = TS_MAX($high@1w, 39)
+wk_lo39 = TS_MIN($low@1w, 39)
+wk_stoch = DIVIDE(SUBTRACT($close@1w, wk_lo39), ADD(SUBTRACT(wk_hi39, wk_lo39), 0.01))
+raw = ADD(ADD(CS_ZSCORE(wk_wick), CS_ZSCORE(wk_sq)), CS_ZSCORE(wk_stoch))
+CS_NEUTRALIZE(raw, CS_BUCKET(LOG($float_cap), 10))

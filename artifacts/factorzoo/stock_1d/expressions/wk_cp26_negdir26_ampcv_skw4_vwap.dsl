@@ -1,0 +1,13 @@
+# 26周5腿合成：cp*2 - dir - amp_cv*2 - skew - vwap_dev，市值中性
+wk_range = SUBTRACT($high@1w, $low@1w)
+wk_cp = DIVIDE(SUBTRACT($close@1w, $low@1w), wk_range)
+wk_cp26 = TS_MEAN(wk_cp, 26)
+wk_r1 = TS_PCTCHANGE($close@1w, 1)
+wk_dir26 = DIVIDE(ABS(TS_SUM(wk_r1, 26)), TS_SUM(ABS(wk_r1), 26))
+wk_amp = DIVIDE(wk_range, $close@1w)
+wk_amp_cv = DIVIDE(TS_STD(wk_amp, 26), TS_MEAN(wk_amp, 26))
+wk_sk26 = TS_SKEW(wk_r1, 26)
+wk_dev = DIVIDE(SUBTRACT($close@1w, $vwap@1w), $vwap@1w)
+wk_dev26 = TS_MEAN(ABS(wk_dev), 26)
+raw = SUBTRACT(ADD(RANK(wk_cp26), RANK(wk_cp26)), ADD(ADD(ADD(RANK(wk_dir26), MULTIPLY(RANK(wk_amp_cv), 2)), RANK(wk_sk26)), RANK(wk_dev26)))
+CS_NEUTRALIZE(raw, CS_BUCKET(LOG($float_cap), 10))

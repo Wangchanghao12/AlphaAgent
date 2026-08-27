@@ -1,0 +1,7 @@
+rv10 = TS_STD($ret, 10)
+er = TS_EFFICIENCY_RATIO(rv10, 60)
+er_r = RANK(CS_NEUTRALIZE(CS_WINSORIZE(er, 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10)))
+rv15 = TS_STD($ret, 15)
+vov = TS_STD(rv15, 60)
+vov_r = RANK(CS_NEUTRALIZE(CS_WINSORIZE(vov, 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10)))
+NEG(ADD(er_r, vov_r))

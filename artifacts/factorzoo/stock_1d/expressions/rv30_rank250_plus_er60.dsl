@@ -1,0 +1,7 @@
+rv30 = TS_STD($ret, 30)
+rk = TS_RANK(rv30, 250)
+rk_r = RANK(CS_NEUTRALIZE(CS_WINSORIZE(rk, 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10)))
+rv10 = TS_STD($ret, 10)
+er = TS_EFFICIENCY_RATIO(rv10, 60)
+er_r = RANK(CS_NEUTRALIZE(CS_WINSORIZE(er, 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10)))
+NEG(ADD(rk_r, er_r))

@@ -1,0 +1,5 @@
+ratio = RANK(DIVIDE(TS_STD($ret, 5), TS_STD($ret, 60)))
+vol20 = TS_STD($ret, 20)
+vov = RANK(TS_STD(vol20, 60))
+vr = RANK(DIVIDE(SUBTRACT(TS_MAX(vol20, 60), TS_MIN(vol20, 60)), TS_MEAN(vol20, 60)))
+CS_NEUTRALIZE(ADD(SUBTRACT(NEG(vov), 0.5), ADD(SUBTRACT(NEG(vr), 0.5), SUBTRACT(NEG(ratio), 0.5))), CS_BUCKET(LOG($float_cap), 10))

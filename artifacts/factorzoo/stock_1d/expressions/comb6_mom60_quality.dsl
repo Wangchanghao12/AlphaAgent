@@ -1,0 +1,8 @@
+hi52 = RANK(DIVIDE($adj_close, TS_MAX($adj_close, 250)))
+ac5 = CS_ZSCORE(TS_RANKCORR($ret, DELAY($ret, 5), 40))
+vreg = CS_ZSCORE(NEG(DIVIDE(TS_STD($ret, 10), TS_STD($ret, 60))))
+mom = CS_NEUTRALIZE(RANK(TS_MEAN($ret, 60)), CS_BUCKET($turnover_rate, 10))
+hilo = CS_ZSCORE(NEG(RANK(DIVIDE(SUBTRACT(TS_MAX($adj_close, 20), TS_MIN($adj_close, 20)), TS_MEAN($adj_close, 20)))))
+sk = CS_ZSCORE(NEG(TS_SKEW($ret, 60)))
+f = ADD(ADD(ADD(ADD(ADD(hi52, ac5), vreg), mom), hilo), sk)
+CS_NEUTRALIZE(f, CS_BUCKET(LOG($float_cap), 10))

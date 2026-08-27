@@ -1,0 +1,10 @@
+# 周收益肥尾规避 + 跳空偏置 + 量价相关反向（三腿合成）
+wk_r1 = TS_PCTCHANGE($close@1w, 1)
+wk_kurt = FILLNA(TS_KURT(wk_r1, 26), 0)
+wk_prev = DELAY($close@1w, 1)
+wk_gap = DIVIDE(SUBTRACT($open@1w, wk_prev), wk_prev)
+wk_gap_bias52 = TS_MEAN(wk_gap, 52)
+wk_amp = DIVIDE(SUBTRACT($high@1w, $low@1w), $close@1w)
+wk_rv_corr = TS_CORR(wk_r1, wk_amp, 20)
+raw = ADD(ADD(RANK(NEG(wk_kurt)), RANK(wk_gap_bias52)), RANK(NEG(FILLNA(wk_rv_corr, 0))))
+CS_NEUTRALIZE(raw, CS_BUCKET(LOG($float_cap), 10))

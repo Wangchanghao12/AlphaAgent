@@ -1,0 +1,6 @@
+rv20 = TS_STD($ret, 20)
+er = TS_EFFICIENCY_RATIO(rv20, 90)
+er_r = RANK(CS_NEUTRALIZE(CS_WINSORIZE(er, 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10)))
+ac = TS_CORR(ABS($ret), DELAY(ABS($ret), 1), 20)
+ac_r = RANK(CS_NEUTRALIZE(CS_WINSORIZE(ac, 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10)))
+NEG(ADD(er_r, ac_r))

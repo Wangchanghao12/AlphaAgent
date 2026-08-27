@@ -1,0 +1,7 @@
+wk_sk = TS_SKEW($close@1w, 13)
+wk_lw = DIVIDE(SUBTRACT(MIN($close@1w, $open@1w), $low@1w), SUBTRACT($high@1w, $low@1w))
+wk_lw13 = TS_MEAN(wk_lw, 13)
+wk_geo = NEG(KLINE_GEOMETRY($open@1w, $high@1w, $low@1w, $close@1w, 26))
+wk_st = DIVIDE(SUBTRACT($close@1w, TS_MIN($low@1w, 39)), SUBTRACT(TS_MAX($high@1w, 39), TS_MIN($low@1w, 39)))
+raw = ADD(ADD(ADD(CS_ZSCORE(NEG(wk_sk)), CS_ZSCORE(wk_lw13)), CS_ZSCORE(wk_geo)), CS_ZSCORE(wk_st))
+CS_NEUTRALIZE(raw, CS_BUCKET(LOG($float_cap), 10))

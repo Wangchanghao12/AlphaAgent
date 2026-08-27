@@ -1,0 +1,7 @@
+hlr = DIVIDE($high, $low)
+hl_l = LOG(hlr)
+park20 = TS_STD(hl_l, 20)
+park_z = TS_ZSCORE(park20, 180)
+park_vov = TS_STD(park20, 60)
+combo = ADD(NEG(RANK(park_z)), NEG(RANK(park_vov)))
+CS_NEUTRALIZE(CS_ZSCORE(combo), CS_BUCKET(LOG($float_cap), 10))

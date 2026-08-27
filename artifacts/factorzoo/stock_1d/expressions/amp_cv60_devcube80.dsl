@@ -1,0 +1,8 @@
+am = LOG(DIVIDE($high,$low))
+am60 = TS_MEAN(FILLNA(am,0.01),60)
+ams60 = TS_STD(am,60)
+acv = DIVIDE(ams60, am60)
+dev_cube = TS_MEAN(POW(SUBTRACT($ret,TS_MEAN($ret,80)),3),80)
+combo = ADD(MULTIPLY(FILLNA(RANK(NEG(acv)),0.5),0.6), MULTIPLY(FILLNA(RANK(NEG(dev_cube)),0.5),0.4))
+capk = CS_BUCKET(LOG($float_cap),10)
+CS_NEUTRALIZE(combo, capk)

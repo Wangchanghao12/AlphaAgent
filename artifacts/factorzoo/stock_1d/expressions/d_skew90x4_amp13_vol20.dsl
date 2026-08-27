@@ -1,0 +1,8 @@
+skew = TS_SKEW($adj_close, 90)
+wk_amp13 = SUBTRACT(TS_MAX($adj_close@1w, 13), TS_MIN($adj_close@1w, 13))
+vol20 = TS_STD($ret, 20)
+skew_z = CS_ZSCORE(NEG(skew))
+amp_z = CS_ZSCORE(NEG(wk_amp13))
+vol_z = CS_ZSCORE(NEG(vol20))
+sig = ADD(ADD(MULTIPLY(skew_z, 4), amp_z), vol_z)
+RANK(CS_NEUTRALIZE(CS_WINSORIZE(sig, 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10)))

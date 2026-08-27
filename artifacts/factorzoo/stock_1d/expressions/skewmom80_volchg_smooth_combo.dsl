@@ -1,0 +1,5 @@
+dev_cube = TS_MEAN(POW(SUBTRACT($ret, TS_MEAN($ret, 80)), 3), 80)
+vol20 = TS_STD($ret, 20)
+vc_s = TS_MEAN(FILLNA(TS_PCTCHANGE(vol20, 60), 0), 5)
+combo = ADD(MULTIPLY(FILLNA(RANK(NEG(dev_cube)), 0.5), 0.5), MULTIPLY(FILLNA(RANK(NEG(vc_s)), 0.5), 0.5))
+CS_NEUTRALIZE(combo, CS_BUCKET(LOG($float_cap), 10))

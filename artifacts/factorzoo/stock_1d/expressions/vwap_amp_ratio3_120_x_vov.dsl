@@ -1,0 +1,7 @@
+amp = DIVIDE(SUBTRACT($high, $low), $vwap)
+a3 = TS_MEAN(amp, 3)
+a120 = TS_MEAN(amp, 120)
+ratio = DIVIDE(a3, ADD(a120, 1e-9))
+vol = TS_STD($ret, 60)
+vov = TS_STD(vol, 60)
+RANK(CS_WINSORIZE(MULTIPLY(ratio, TS_RANK(vov, 250)), 0.01, 0.99))

@@ -1,0 +1,5 @@
+wk_skew26 = TS_SKEW($adj_close@1w, 26)
+wk_amp13 = DIVIDE(SUBTRACT(TS_MEAN($adj_high@1w, 13), TS_MEAN($adj_low@1w, 13)), TS_MEAN($adj_close@1w, 13))
+dvol20 = TS_STD($ret, 20)
+sig = ADD(ADD(NEG(wk_skew26), NEG(wk_amp13)), NEG(dvol20))
+RANK(CS_NEUTRALIZE(CS_WINSORIZE(sig, 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10)))

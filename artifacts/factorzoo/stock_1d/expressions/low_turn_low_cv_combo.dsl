@@ -1,0 +1,5 @@
+lt = TS_MEAN($turnover_rate_f, 20)
+cv = DIVIDE(TS_STD($turnover_rate_f, 20), lt)
+lt_z = CS_NEUTRALIZE(CS_WINSORIZE(NEG(lt), 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10))
+cv_z = CS_NEUTRALIZE(CS_WINSORIZE(NEG(cv), 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10))
+ADD(CS_ZSCORE(lt_z), CS_ZSCORE(cv_z))

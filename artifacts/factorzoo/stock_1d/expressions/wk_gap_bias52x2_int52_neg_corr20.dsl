@@ -1,0 +1,10 @@
+# 跳空52周，gap_bias权重2：gap_bias52×2 + (-gap_int52) + (-ret-amp corr20)，市值中性
+wk_prev = DELAY($close@1w, 1)
+wk_gap = DIVIDE(SUBTRACT($open@1w, wk_prev), wk_prev)
+wk_gap_bias52 = TS_MEAN(wk_gap, 52)
+wk_gap_int52 = TS_MEAN(ABS(wk_gap), 52)
+wk_r1 = TS_PCTCHANGE($close@1w, 1)
+wk_amp = DIVIDE(SUBTRACT($high@1w, $low@1w), $close@1w)
+wk_rv_corr = TS_CORR(wk_r1, wk_amp, 20)
+raw = SUBTRACT(ADD(MULTIPLY(RANK(wk_gap_bias52), 2), RANK(NEG(wk_rv_corr))), RANK(wk_gap_int52))
+CS_NEUTRALIZE(raw, CS_BUCKET(LOG($float_cap), 10))
