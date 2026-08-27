@@ -37,3 +37,8 @@ artifacts/factorzoo/stock_1d/**/*
 
 # 旧路径（已迁到 factorzoo/expressions）
 examples/factors/mined/
+
+# 部署二进制 / 日志 / macOS 元数据（不入库）
+*.so
+._*
+log/
