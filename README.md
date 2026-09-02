@@ -92,6 +92,24 @@ uv sync --extra mining
 uv run python scripts/factor_mining_agentscope.py --panel artifacts/panel/panel_1d.parquet --label-col label_10d_close_to_close
 ```
 
+## One-command discovery cycle
+
+With a 2010-present panel and the sibling vnpy `alpha_research` project available:
+
+```bash
+python scripts/run_discovery_cycle.py \
+  --vnpy-root /path/to/vnpy/examples/alpha_research \
+  --alpha-python /path/to/alphaagent/python \
+  --vnpy-python /path/to/vnpy/python
+```
+
+The command mines factors, gates them using data no later than 2023, exports only
+this round's passing factors, retrains Alpha158 T+5 BASE/MINING models on
+2010-2023, and compares 2024/2025/2026 using the SmartX production contract
+(CSI300 PIT, S30-daily, timing and real fees). Reports are written under
+`artifacts/mining_runs/<run_id>/`. If the panel is missing, it is built
+automatically from the VNpy daily archive. Use `--dry-run` for preflight only.
+
 ## Tests
 
 ```powershell

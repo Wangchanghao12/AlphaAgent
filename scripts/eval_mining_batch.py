@@ -50,6 +50,11 @@ def _parse_args() -> argparse.Namespace:
         help="'submit'(默认)—只看挖掘 submit 的因子；'all'—全部注册的因子；逗号列表—指定来源",
     )
     p.add_argument(
+        "--factor-ids",
+        default=None,
+        help="只评估这些 factor_id（逗号分隔）；用于隔离本轮新挖掘产物",
+    )
+    p.add_argument(
         "--since",
         default=None,
         help="只评估 ingested_at >= 该日期(YYYY-MM-DD)的因子，如 --since 2026-08-04 只看昨天本轮",
@@ -225,6 +230,14 @@ def main() -> int:
     else:
         sources = set(s.strip() for s in args.source_filter.split(","))
         selected = [(k, v) for k, v in registry.items() if v.get("source") in sources]
+
+    if args.factor_ids:
+        requested = {s.strip() for s in args.factor_ids.split(",") if s.strip()}
+        missing = sorted(requested - set(registry))
+        if missing:
+            print(f"错误：registry 不存在因子: {missing}", file=sys.stderr)
+            return 2
+        selected = [(k, v) for k, v in selected if k in requested]
 
     # 过滤 ingested_at 日期范围
     if args.since or args.until:

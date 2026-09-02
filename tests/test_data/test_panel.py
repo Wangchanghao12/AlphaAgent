@@ -478,6 +478,11 @@ def test_label_nd_close_to_close_formula():
     # T=day0: (close[T+2]-close[T+1])/(close[T+1]) = (12-11)/11
     assert np.isclose(label_1d.iloc[0], (12.0 - 11.0) / 11.0)
 
+    label_5d = _calc_label_nd_close_to_close(panel["adj_close"], 5)
+    # 与 SmartX Alpha158 的 T+5 label 对齐：T+1 close 到 T+6 close
+    assert np.isclose(label_5d.iloc[0], (16.0 - 11.0) / 11.0)
+    assert label_5d.iloc[-5:].isna().all()
+
     label_10d = _calc_label_nd_close_to_close(panel["adj_close"], 10)
     # T=day0: (close[T+11]-close[T+1])/(close[T+1]) = (21-11)/11
     assert np.isclose(label_10d.iloc[0], (21.0 - 11.0) / 11.0)

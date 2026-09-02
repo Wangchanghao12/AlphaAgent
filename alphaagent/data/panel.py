@@ -22,8 +22,9 @@ from alphaagent.data.universe import filter_universe
 
 DEFAULT_PANEL_PATH = PANEL_PATH
 
-# label_{N}d_close_to_close：T+1 收盘 → T+(N+1) 收盘
-CLOSE_TO_CLOSE_LABEL_HOLD_DAYS = (1, 10, 20)
+# label_{N}d_close_to_close：T+1 收盘 → T+(N+1) 收盘。
+# 5 日标签与 SmartX 线上 Alpha158 的 T+5 训练目标保持一致。
+CLOSE_TO_CLOSE_LABEL_HOLD_DAYS = (1, 5, 10, 20)
 
 
 def close_to_close_label_name(hold_days: int) -> str:

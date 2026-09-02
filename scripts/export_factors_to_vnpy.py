@@ -68,6 +68,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--out", type=Path, required=True, help="输出 parquet 路径")
     p.add_argument("--no-merge", action="store_true",
                    help="默认当 --out 已存在时会合并旧文件的因子列；加此开关改为完全覆盖")
+    p.add_argument(
+        "--keep-all-rows",
+        action="store_true",
+        help="保留 warmup 期全 NaN 行，供严格训练/测试覆盖检查使用",
+    )
     return p.parse_args()
 
 
@@ -119,7 +124,8 @@ def main() -> int:
     out = factor_df.reset_index()[["datetime", "instrument", *ids]]
     out["vt_symbol"] = out["instrument"].map(to_vt_symbol)
     out = out[["datetime", "vt_symbol", *ids]]
-    out = out.dropna(how="all", subset=ids)  # 去掉全因子 NaN 的行（无数据的时间/票）
+    if not args.keep_all_rows:
+        out = out.dropna(how="all", subset=ids)  # 去掉全因子 NaN 的行（无数据的时间/票）
 
     # 目标文件已存在时合并旧因子列（避免只导新因子时冲掉已有列）
     if args.out.is_file() and not args.no_merge:

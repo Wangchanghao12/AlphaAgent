@@ -18,7 +18,6 @@
 # 日志：logs/factor_mining/<lane>/cli_<时间戳>.log（每次启动一份，不覆盖历史）。
 #
 # 前置：同 run_factor_mining.sh（panel 已存在、mining 依赖已装、factorlib 已 init）。
-export OPENAI_API_KEY="sk-CdmOG9MFqExhObZialn7-Q"
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -46,6 +45,12 @@ fi
 
 PANEL="${PANEL:-artifacts/panel/panel_1d.parquet}"
 LABEL_COL="${LABEL_COL:-label_10d_close_to_close}"
+TRAIN_START="${TRAIN_START:-2019-01-01}"
+TRAIN_END="${TRAIN_END:-2021-12-31}"
+VAL_START="${VAL_START:-2022-01-01}"
+VAL_END="${VAL_END:-2024-12-31}"
+HOLDOUT_START="${HOLDOUT_START:-2025-01-01}"
+HOLDOUT_END="${HOLDOUT_END:-2026-07-31}"
 LANES="${LANES:-momentum,volatility,volume,weekly}"
 MAX_PARALLEL_EVAL="${MAX_PARALLEL_EVAL:-4}"   # 每进程并行 eval 数（多个进程共用 8 核，别都设满）
 MAX_TOOL_WORKERS="${MAX_TOOL_WORKERS:-4}"
@@ -60,8 +65,15 @@ while [[ $# -gt 0 ]]; do
     --lanes)     LANES="${2:?--lanes 需要参数，如 momentum,volume}"; shift 2 ;;
     --max-turns) MAX_TURNS="${2:?--max-turns 需要参数}"; shift 2 ;;
     --panel)     PANEL="${2:?--panel 需要参数}"; shift 2 ;;
+    --label-col) LABEL_COL="${2:?--label-col 需要参数}"; shift 2 ;;
+    --train-start) TRAIN_START="${2:?--train-start 需要参数}"; shift 2 ;;
+    --train-end) TRAIN_END="${2:?--train-end 需要参数}"; shift 2 ;;
+    --val-start) VAL_START="${2:?--val-start 需要参数}"; shift 2 ;;
+    --val-end) VAL_END="${2:?--val-end 需要参数}"; shift 2 ;;
+    --holdout-start) HOLDOUT_START="${2:?--holdout-start 需要参数}"; shift 2 ;;
+    --holdout-end) HOLDOUT_END="${2:?--holdout-end 需要参数}"; shift 2 ;;
     --no-submit) NO_SUBMIT=1; shift ;;
-    *) echo "未知参数: $1（可用：--lanes / --max-turns / --panel / --no-submit）" >&2; exit 2 ;;
+    *) echo "未知参数: $1" >&2; exit 2 ;;
   esac
 done
 
@@ -74,6 +86,8 @@ printf 'LiteLLM base : %s\n' "$OPENAI_API_BASE"
 printf 'MODEL        : %s\n' "$MODEL"
 printf 'PANEL        : %s\n' "$PANEL"
 printf 'LABEL_COL    : %s\n' "$LABEL_COL"
+printf 'WINDOWS      : train=%s~%s val=%s~%s holdout=%s~%s\n' \
+  "$TRAIN_START" "$TRAIN_END" "$VAL_START" "$VAL_END" "$HOLDOUT_START" "$HOLDOUT_END"
 printf 'LANES        : %s\n' "$LANES"
 printf 'per-proc eval/workers: %s/%s\n' "$MAX_PARALLEL_EVAL" "$MAX_TOOL_WORKERS"
 
@@ -110,7 +124,12 @@ run_lane() {
 
 # 基础参数（所有进程共享）
 declare -a BASE
-BASE=(--panel "$PANEL" --label-col "$LABEL_COL" --max-turns "$MAX_TURNS")
+BASE=(
+  --panel "$PANEL" --label-col "$LABEL_COL" --max-turns "$MAX_TURNS"
+  --train-start "$TRAIN_START" --train-end "$TRAIN_END"
+  --val-start "$VAL_START" --val-end "$VAL_END"
+  --holdout-start "$HOLDOUT_START" --holdout-end "$HOLDOUT_END"
+)
 if [[ "$NO_SUBMIT" == "1" ]]; then
   BASE+=(--no-submit)
 fi
