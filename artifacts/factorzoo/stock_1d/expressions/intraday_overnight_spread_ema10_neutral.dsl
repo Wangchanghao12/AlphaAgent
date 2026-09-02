@@ -1,6 +1,0 @@
-intraday_ret = DIVIDE(SUBTRACT($adj_close, $adj_open), $adj_open)
-overnight_ret = DIVIDE(SUBTRACT($adj_open, DELAY($adj_close, 1)), DELAY($adj_close, 1))
-spread = SUBTRACT(intraday_ret, overnight_ret)
-spread_ema = EMA(CS_WINSORIZE(spread, 0.02, 0.98), 10)
-neutralized = CS_NEUTRALIZE(spread_ema, CS_BUCKET(LOG($float_cap), 10))
-CS_ZSCORE(neutralized)

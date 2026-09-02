@@ -1,5 +1,0 @@
-amihud = DIVIDE(ABS($ret), ADD($amount, 1e-12))
-amihud_win = CS_WINSORIZE(amihud, 0.01, 0.99)
-amihud_log = LOG(ADD(amihud_win, 1e-12))
-amihud_smooth = TS_MEAN(amihud_log, 30)
-CS_ZSCORE(amihud_smooth)

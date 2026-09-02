@@ -1,7 +1,0 @@
-roe_r = RANK(CS_WINSORIZE($funda_roe, 0.01, 0.99))
-vol = TS_STD($ret, 20)
-vol_r = RANK(DIVIDE(1, ADD(vol, 0.001)))
-roe_center = MULTIPLY(roe_r, SUBTRACT(1, roe_r))
-vol_center = MULTIPLY(vol_r, SUBTRACT(1, vol_r))
-score = ADD(roe_center, vol_center)
-CS_NEUTRALIZE(CS_WINSORIZE(score, 0.01, 0.99), CS_BUCKET(LOG($float_cap), 10))
