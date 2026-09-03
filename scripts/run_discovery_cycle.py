@@ -21,7 +21,16 @@ MARKET_HQ = ROOT / "artifacts/market/daily_hq.parquet"
 
 
 def _parse_args() -> argparse.Namespace:
-    default_vnpy = ROOT.parent / "vnpy/examples/alpha_research"
+    # 服务器生产路径优先；本机可回退到兄弟目录
+    candidates = [
+        Path("/mnt/recom/develop/wangchanghao/rtp_fg/em_ak/em_ak/examples/alpha_research"),
+        ROOT.parent / "em_ak/em_ak/examples/alpha_research",
+        ROOT.parent / "vnpy/examples/alpha_research",
+    ]
+    default_vnpy = next(
+        (p for p in candidates if (p / "smallcap_live/config.py").is_file()),
+        candidates[0],
+    )
     p = argparse.ArgumentParser(description="AlphaAgent 一键因子挖掘与线上口径验收")
     p.add_argument("--panel", type=Path, default=PANEL)
     p.add_argument("--registry", type=Path, default=REGISTRY)
@@ -29,6 +38,7 @@ def _parse_args() -> argparse.Namespace:
         "--vnpy-root",
         type=Path,
         default=Path(os.environ.get("VNPY_ALPHA_RESEARCH", default_vnpy)),
+        help="alpha_research 根目录（默认优先 em_ak 生产路径）",
     )
     p.add_argument("--alpha-python", default=os.environ.get("ALPHAAGENT_PYTHON", sys.executable))
     p.add_argument("--vnpy-python", default=os.environ.get("VNPY_PYTHON", sys.executable))
@@ -53,6 +63,54 @@ def _parse_args() -> argparse.Namespace:
 
 def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+
+def _load_dotenv() -> None:
+    """加载仓库根 .env，不覆盖已有环境变量。"""
+    env_path = ROOT / ".env"
+    if not env_path.is_file():
+        return
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        load_dotenv = None  # type: ignore[assignment]
+    if load_dotenv is not None:
+        load_dotenv(env_path, override=False)
+        return
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip("'").strip('"')
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def _ensure_llm_key(*, skip_mining: bool) -> None:
+    if skip_mining:
+        return
+    if not os.environ.get("OPENAI_API_KEY"):
+        for alt in ("AX_LLM_API_KEY", "LITELLM_API_KEY"):
+            if os.environ.get(alt):
+                os.environ["OPENAI_API_KEY"] = os.environ[alt]
+                print(f"[preflight] 使用 {alt} 作为 OPENAI_API_KEY")
+                break
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise SystemExit(
+            "缺少 LLM Key。\n"
+            "你的 .env 里如果是 LITELLM_API_KEY，旧脚本不会自动加载；请先同步最新脚本，或执行：\n"
+            "  set -a; source .env; set +a\n"
+            "  export OPENAI_API_KEY=\"$LITELLM_API_KEY\""
+        )
+    os.environ.setdefault(
+        "OPENAI_API_BASE",
+        os.environ.get("AX_LLM_BASE_URL", "https://litellm.spaccez.com/v1"),
+    )
+    os.environ.setdefault("MODEL", os.environ.get("AX_LLM_MODEL", "deepseek-v4-flash"))
+    key = os.environ["OPENAI_API_KEY"]
+    print(f"[preflight] LLM MODEL={os.environ.get('MODEL')} KEY=***{key[-4:]}")
 
 
 def _run(command: list[str], *, cwd: Path = ROOT, log: Path | None = None) -> None:
@@ -222,6 +280,7 @@ def _markdown_report(combined: dict) -> str:
 
 
 def main() -> int:
+    _load_dotenv()
     args = _parse_args()
     run_dir = ROOT / "artifacts/mining_runs" / args.run_id
     eval_json = run_dir / "gate_eval.json"
@@ -238,6 +297,7 @@ def main() -> int:
     print("  模型 train=2010~2023, test=2024/2025/2026")
     print("  label=T+5；测试年份绝不参与因子选择")
     if args.dry_run:
+        _ensure_llm_key(skip_mining=args.skip_mining)
         if args.panel.is_file():
             _ensure_panel_contract(args.panel, mutate=False)
         elif args.no_auto_prepare_data:
@@ -249,7 +309,8 @@ def main() -> int:
         print("dry-run 完成：数据来源、VNpy 路径和执行协议检查通过")
         return 0
 
-    run_dir.mkdir(parents=True, exist_ok=False)
+    _ensure_llm_key(skip_mining=args.skip_mining)
+    run_dir.mkdir(parents=True, exist_ok=True)
     _prepare_panel(args)
     panel_range = _ensure_panel_contract(args.panel, mutate=True)
     _ensure_label_5d(args.panel, args.alpha_python)

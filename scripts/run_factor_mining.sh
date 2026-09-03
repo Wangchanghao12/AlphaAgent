@@ -26,6 +26,14 @@ elif [[ -f "$HOME/export.sh" ]]; then
   source "$HOME/export.sh"
 fi
 
+# 自动加载仓库根 .env（不覆盖已有环境变量）
+if [[ -f "$ROOT/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT/.env"
+  set +a
+fi
+
 # LiteLLM 网关（与 agentx 同机房默认一致；可被环境变量覆盖）
 export OPENAI_API_BASE="${OPENAI_API_BASE:-${AX_LLM_BASE_URL:-https://litellm.spaccez.com/v1}}"
 export MODEL="${MODEL:-${AX_LLM_MODEL:-deepseek-v4-flash}}"
@@ -38,7 +46,7 @@ if [[ -z "${OPENAI_API_KEY:-}" ]]; then
     export OPENAI_API_KEY="$LITELLM_API_KEY"
   fi
 fi
-: "${OPENAI_API_KEY:?请先 export OPENAI_API_KEY（或 AX_LLM_API_KEY / LITELLM_API_KEY）}"
+: "${OPENAI_API_KEY:?请先 export OPENAI_API_KEY，或在仓库根 .env 写 OPENAI_API_KEY / AX_LLM_API_KEY / LITELLM_API_KEY}"
 
 # 可选并行评估
 export MAX_PARALLEL_EVAL="${MAX_PARALLEL_EVAL:-8}"

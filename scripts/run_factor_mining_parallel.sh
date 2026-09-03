@@ -32,6 +32,14 @@ elif [[ -f "$HOME/export.sh" ]]; then
   source "$HOME/export.sh"
 fi
 
+# 自动加载仓库根 .env（不覆盖已有环境变量）
+if [[ -f "$ROOT/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT/.env"
+  set +a
+fi
+
 export OPENAI_API_BASE="${OPENAI_API_BASE:-${AX_LLM_BASE_URL:-https://litellm.spaccez.com/v1}}"
 export MODEL="${MODEL:-${AX_LLM_MODEL:-deepseek-v4-flash}}"
 if [[ -z "${OPENAI_API_KEY:-}" ]]; then
@@ -41,7 +49,17 @@ if [[ -z "${OPENAI_API_KEY:-}" ]]; then
     export OPENAI_API_KEY="$LITELLM_API_KEY"
   fi
 fi
-: "${OPENAI_API_KEY:?请先 export OPENAI_API_KEY（或 AX_LLM_API_KEY / LITELLM_API_KEY）}"
+if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+  cat >&2 <<'EOF'
+错误：缺少 LLM Key。
+当前 .env 可用变量名：OPENAI_API_KEY / AX_LLM_API_KEY / LITELLM_API_KEY
+你这边若已有 LITELLM_API_KEY，请确认脚本已更新到会自动 source .env 的版本，或先执行：
+  set -a; source .env; set +a
+  export OPENAI_API_KEY="$LITELLM_API_KEY"
+EOF
+  exit 1
+fi
+echo "LLM: MODEL=$MODEL  KEY=***${OPENAI_API_KEY: -4}"
 
 PANEL="${PANEL:-artifacts/panel/panel_1d.parquet}"
 LABEL_COL="${LABEL_COL:-label_10d_close_to_close}"

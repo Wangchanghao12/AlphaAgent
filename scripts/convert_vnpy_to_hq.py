@@ -12,7 +12,7 @@
 
 用法（在服务器 AlphaAgent 根目录）：
   python scripts/convert_vnpy_to_hq.py \
-    --vnpy-root /mnt/recom/develop/wangchanghao/rtp_fg/vnpy/examples/alpha_research \
+    --vnpy-root /mnt/recom/develop/wangchanghao/rtp_fg/em_ak/em_ak/examples/alpha_research \
     --start 2010-01-01 --end 2026-08-22
 
 输出：artifacts/market/daily_hq.parquet（与 fetch_market.py 格式完全兼容）
@@ -346,7 +346,7 @@ def main() -> None:
         "--vnpy-root",
         type=Path,
         required=True,
-        help="vnpy alpha_research 目录，如 /mnt/.../vnpy/examples/alpha_research",
+        help="vnpy alpha_research 目录，如 /mnt/.../em_ak/em_ak/examples/alpha_research",
     )
     parser.add_argument("--start", type=str, default="2010-01-01")
     parser.add_argument("--end", type=str, default="2026-08-22")

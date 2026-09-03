@@ -98,10 +98,12 @@ With a 2010-present panel and the sibling vnpy `alpha_research` project availabl
 
 ```bash
 python scripts/run_discovery_cycle.py \
-  --vnpy-root /path/to/vnpy/examples/alpha_research \
+  --vnpy-root /mnt/recom/develop/wangchanghao/rtp_fg/em_ak/em_ak/examples/alpha_research \
   --alpha-python /path/to/alphaagent/python \
   --vnpy-python /path/to/vnpy/python
 ```
+
+Default `--vnpy-root` prefers the `em_ak` production path above.
 
 The command mines factors, gates them using data no later than 2023, exports only
 this round's passing factors, retrains Alpha158 T+5 BASE/MINING models on
