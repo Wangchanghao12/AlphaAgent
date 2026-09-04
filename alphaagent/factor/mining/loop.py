@@ -14,7 +14,8 @@ from alphaagent.factor.mining.tools import FactorEvalTools
 
 _NUDGE = (
     "[local] 请继续推进，不要停在解释或征询下一步；"
-    "请直接基于当前上下文发起原生 tool_calls（建议并行多条 eval_on_train_set）。"
+    "请直接基于当前上下文发起原生 tool_calls。"
+    "若刚刚 eval 超时，不要用 $adj_close 探针探测，停止继续 eval。"
 )
 
 

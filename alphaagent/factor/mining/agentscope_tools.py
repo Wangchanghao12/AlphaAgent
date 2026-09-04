@@ -19,6 +19,74 @@ _EXECUTOR: ThreadPoolExecutor | None = None
 # 单次工具评估超时（秒）：病态 DSL（超长窗口/昂贵算子）可能烧 CPU 数小时，
 # 超时后向模型返回错误；僵死线程会被 _force_shutdown_executor 在退出时清理。
 EVAL_TIMEOUT_SECONDS = float(os.getenv("MINING_EVAL_TIMEOUT", "900"))
+# 连续超时几次后熔断：超时并不会取消线程，继续探针只会把队列堵死。
+EVAL_TIMEOUT_TRIP_AFTER = int(os.getenv("MINING_EVAL_TIMEOUT_TRIP", "3"))
+
+_TIMEOUT_MARK = "超过"
+_CIRCUIT_MARK = "评估队列已熔断"
+
+
+class EvalTimeoutCircuit:
+    """进程内连续超时熔断（一个 lane 一个进程）。"""
+
+    def __init__(self, trip_after: int = EVAL_TIMEOUT_TRIP_AFTER) -> None:
+        self.trip_after = max(1, trip_after)
+        self.consecutive = 0
+        self.open = False
+
+    def reset(self) -> None:
+        self.consecutive = 0
+        self.open = False
+
+    def record_timeout(self) -> None:
+        self.consecutive += 1
+        if self.consecutive >= self.trip_after:
+            self.open = True
+
+    def record_ok(self) -> None:
+        self.consecutive = 0
+        self.open = False
+
+
+_CIRCUIT = EvalTimeoutCircuit()
+
+
+def reset_eval_timeout_circuit(*, trip_after: int | None = None) -> EvalTimeoutCircuit:
+    global _CIRCUIT
+    _CIRCUIT = EvalTimeoutCircuit(trip_after if trip_after is not None else EVAL_TIMEOUT_TRIP_AFTER)
+    return _CIRCUIT
+
+
+def eval_circuit_is_open() -> bool:
+    return _CIRCUIT.open
+
+
+def is_eval_timeout_error(result: dict[str, Any] | None) -> bool:
+    if not isinstance(result, dict):
+        return False
+    err = str(result.get("error") or "")
+    return _TIMEOUT_MARK in err or _CIRCUIT_MARK in err
+
+
+def _timeout_error(name: str, *, timeout: float, queued: bool = False) -> dict[str, Any]:
+    if queued or _CIRCUIT.open:
+        return {
+            "ok": False,
+            "error_type": "EvalTimeoutCircuitOpen",
+            "error": (
+                f"{_CIRCUIT_MARK}：连续 {_CIRCUIT.consecutive} 次 {name} 超时。"
+                "超时任务仍占着评估线程，继续探针只会再等 900s。"
+                "禁止再用 RANK($adj_close)/$adj_close 探测；停止本会话 eval，已入库因子即本轮交付。"
+            ),
+        }
+    return {
+        "ok": False,
+        "error_type": "EvalTimeout",
+        "error": (
+            f"工具 {name} {_TIMEOUT_MARK} {timeout:.0f}s 被放弃。"
+            "不要用更简单的探针反复试；若连续超时，停止 eval。"
+        ),
+    }
 
 
 def _executor(max_workers: int) -> ThreadPoolExecutor:
@@ -48,23 +116,20 @@ def _dispatch_with_timeout(
     max_workers 透传给共享执行器（首次创建时生效），保证一个 lane 内
     多个并发 eval 不会被串行化。
     """
+    if _CIRCUIT.open:
+        return _timeout_error(name, timeout=timeout, queued=True), 0.0
     executor = _executor(max_workers)
     future = executor.submit(_dispatch_sync, tools, name, arguments)
     t0 = time.perf_counter()
     try:
-        return future.result(timeout=timeout)
+        result, elapsed = future.result(timeout=timeout)
+        if isinstance(result, dict) and result.get("ok"):
+            _CIRCUIT.record_ok()
+        return result, elapsed
     except FutureTimeoutError:
         elapsed = round(time.perf_counter() - t0, 2)
-        return (
-            {
-                "ok": False,
-                "error": (
-                    f"工具 {name} 超过 {timeout:.0f}s 被放弃（表达式可能过于昂贵："
-                    f"请缩短窗口/降低复杂度后重试）"
-                ),
-            },
-            elapsed,
-        )
+        _CIRCUIT.record_timeout()
+        return _timeout_error(name, timeout=timeout), elapsed
     except Exception as exc:  # noqa: BLE001
         elapsed = round(time.perf_counter() - t0, 4)
         return {"ok": False, "error": f"工具执行异常: {exc!r}"}, elapsed

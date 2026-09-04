@@ -35,6 +35,7 @@ FACTOR_MINING_INTERFACE_PROMPT = """你是一名量化研究自主智能体，�
 - **相关性 + 鲁棒性双目标**；筛选用 **`abs(summary.ic)`** 与 **`abs(summary.rank_ic)`**；**负 IC 是有效负向 alpha**，不是错误。
 - **中间变量命名**：蛇形英文名（如 `ma_w_dev`），避免 `x`、`tmp`。
 - 若 `ok` 为 false，修正 DSL 或列名。
+- **禁止空转探针**：`eval` 超时后不要改用 `$adj_close`、`RANK($adj_close)`、`RANK($turnover_rate_f)` 探测「服务是否恢复」。超时几乎都是评估队列堵塞，探针只会再堵 900 秒。连续超时则停止本会话 eval；已 `submit_factor` 成功的因子即本轮交付。
 
 ---
 

@@ -19,7 +19,13 @@ from agentscope.workspace import LocalWorkspace
 from alphaagent.factor.mining.env_settings import resolve_max_parallel_eval
 from alphaagent.factor.mining.schemas import SessionCreateRequest
 from alphaagent.factor.mining.service import StockEvalService
-from alphaagent.factor.mining.agentscope_tools import build_factor_eval_toolkit, context_to_openai_messages
+from alphaagent.factor.mining.agentscope_tools import (
+    build_factor_eval_toolkit,
+    context_to_openai_messages,
+    eval_circuit_is_open,
+    is_eval_timeout_error,
+    reset_eval_timeout_circuit,
+)
 from alphaagent.factor.mining.cli_stream import MiningStreamObserver, stream_to_cli
 from alphaagent.factor.mining.config import MiningConfig
 from alphaagent.factor.mining.console import ConsolePrinter
@@ -108,6 +114,7 @@ async def run_factor_mining_agentscope(
     repo_root: Path | None = None,
 ) -> dict[str, Any]:
     """AgentScope 版挖掘入口：与 run_factor_mining 配置一致，CLI 流式输出。"""
+    reset_eval_timeout_circuit()
     service = service or StockEvalService(
         max_parallel_eval=resolve_max_parallel_eval(config.max_parallel_eval),
     )
@@ -219,6 +226,7 @@ async def run_factor_mining_agentscope(
                         "name": row.get("name"),
                         "elapsed_seconds": row.get("elapsed_seconds"),
                         "ok": res.get("ok"),
+                        "error": res.get("error"),
                     }
                 )
                 if row.get("name") == "submit_factor":
@@ -248,6 +256,13 @@ async def run_factor_mining_agentscope(
         if had_tools:
             tool_call_rounds += 1
 
+        if eval_circuit_is_open() or (
+            len(tool_call_rows) >= 3
+            and all(is_eval_timeout_error({"error": r.get("error")}) for r in tool_call_rows[-3:])
+        ):
+            end_reason = "eval_timeout_circuit_open"
+            break
+
         if not had_tools:
             if tool_call_rounds < config.min_tool_call_rounds_before_allow_stop:
                 _emit("nudge", {"turn": outer_turn, "tool_call_rounds": tool_call_rounds})
@@ -264,9 +279,10 @@ async def run_factor_mining_agentscope(
             break
         # 续轮时刷新已入库因子清单（并行多 lane 时其他进程会持续 submit）
         digest = _registry_digest()
-        pending = "请基于当前工具结果继续迭代；需要时并行 eval_on_train_set，达标后 submit_factor。" + (
-            f"\n\n{digest}" if digest else ""
-        )
+        pending = (
+            "请基于当前工具结果继续迭代；达标后 submit_factor。"
+            "若 eval 已超时，不要用 $adj_close 探针探测。"
+        ) + (f"\n\n{digest}" if digest else "")
     else:
         end_reason = "max_turns_reached"
 

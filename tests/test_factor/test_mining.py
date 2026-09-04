@@ -36,6 +36,8 @@ def test_system_prompt_sections() -> None:
     prompt = build_system_prompt()
     assert "因子构建接口" in prompt
     assert "eval_on_train_set" in prompt
+    assert "禁止空转探针" in prompt
+    assert "RANK($adj_close)" in prompt
     assert "submit_factor" in prompt
     assert "会话完成条件" in prompt
     assert "stored=true" in prompt
@@ -123,3 +125,36 @@ def test_mining_stream_observer_emits_agent_blocks() -> None:
     assert events[2][1]["name"] == "eval_on_train_set"
     assert events[3][0] == "tool_results"
     assert events[3][1]["results"][0]["result"]["ok"] is True
+
+
+def test_eval_timeout_circuit_trips_and_fail_fast() -> None:
+    from alphaagent.factor.mining.agentscope_tools import (
+        _dispatch_with_timeout,
+        _force_shutdown_executor,
+        eval_circuit_is_open,
+        is_eval_timeout_error,
+        reset_eval_timeout_circuit,
+    )
+
+    class _SlowTools:
+        def dispatch(self, name: str, arguments: dict) -> dict:
+            import time
+
+            time.sleep(0.3)
+            return {"ok": True}
+
+    reset_eval_timeout_circuit(trip_after=2)
+    tools = _SlowTools()
+    try:
+        r1, _ = _dispatch_with_timeout(tools, "eval_on_train_set", {}, max_workers=1, timeout=0.05)
+        assert is_eval_timeout_error(r1)
+        assert not eval_circuit_is_open()
+        r2, _ = _dispatch_with_timeout(tools, "eval_on_train_set", {}, max_workers=1, timeout=0.05)
+        assert is_eval_timeout_error(r2)
+        assert eval_circuit_is_open()
+        r3, elapsed3 = _dispatch_with_timeout(tools, "eval_on_train_set", {}, max_workers=1, timeout=0.05)
+        assert r3.get("error_type") == "EvalTimeoutCircuitOpen"
+        assert elapsed3 == 0.0
+    finally:
+        _force_shutdown_executor()
+        reset_eval_timeout_circuit()
