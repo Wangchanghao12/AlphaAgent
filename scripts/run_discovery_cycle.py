@@ -58,7 +58,20 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument("--dry-run", action="store_true", help="只检查并打印执行计划")
     p.add_argument("--run-id", default=datetime.now().strftime("%Y%m%d_%H%M%S"))
-    return p.parse_args()
+    p.add_argument(
+        "positional",
+        nargs="*",
+        help="可省略开关名：第一个是 vnpy-root，第二个是 vnpy-python",
+    )
+    args = p.parse_args()
+    extra = list(args.positional or [])
+    if len(extra) > 2:
+        p.error("位置参数最多两个：<vnpy-root> <vnpy-python>")
+    if extra:
+        args.vnpy_root = Path(extra[0])
+    if len(extra) == 2:
+        args.vnpy_python = extra[1]
+    return args
 
 
 def _load_json(path: Path) -> Any:
