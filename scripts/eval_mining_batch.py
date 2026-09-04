@@ -236,6 +236,16 @@ def main() -> int:
         missing = sorted(requested - set(registry))
         if missing:
             print(f"错误：registry 不存在因子: {missing}", file=sys.stderr)
+            if set(missing) <= {"id1", "id2", "id3"}:
+                print(
+                    "提示：id1/id2 只是文档占位符，请换成 registry 里的真实 factor_id。",
+                    file=sys.stderr,
+                )
+            print("可用 factor_id：", file=sys.stderr)
+            for fid in sorted(registry):
+                src = (registry[fid] or {}).get("source", "?")
+                ts = str((registry[fid] or {}).get("ingested_at") or "")[:19]
+                print(f"  {fid}  source={src}  ingested_at={ts or '?'}", file=sys.stderr)
             return 2
         selected = [(k, v) for k, v in selected if k in requested]
 

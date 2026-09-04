@@ -34,6 +34,19 @@ def _num(value: Any) -> float:
     return float(value or 0.0)
 
 
+def _as_date(value: Any):
+    if value is None:
+        return None
+    if hasattr(value, "date") and not isinstance(value, datetime):
+        try:
+            return value.date()
+        except Exception:  # noqa: BLE001
+            pass
+    if isinstance(value, datetime):
+        return value.date()
+    return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+
+
 def _year_stats(daily_df, periods: list[tuple[str, str, str]]) -> dict[str, dict]:
     from label_timing.train_label_timing import subperiod_return_stats
 
@@ -186,12 +199,42 @@ def main() -> int:
     latest, _ = bars_probe_latest(lab, train_symbols[:20])
     if latest is None:
         raise SystemExit("无法探测 VNpy 最新行情日期")
-    test_end = latest.isoformat()
+
+    ft_dates = (
+        pl.scan_parquet(args.factor_table)
+        .select(pl.col("datetime").min().alias("lo"), pl.col("datetime").max().alias("hi"))
+        .collect()
+        .row(0, named=True)
+    )
+    factor_lo = _as_date(ft_dates["lo"])
+    factor_hi = _as_date(ft_dates["hi"])
+    train_lo = datetime.strptime("2010-01-04", "%Y-%m-%d").date()
+    train_hi = datetime.strptime(args.train_end, "%Y-%m-%d").date()
+    if factor_lo is None or factor_hi is None:
+        raise SystemExit("因子表日期为空")
+    if factor_lo > train_lo or factor_hi < train_hi:
+        raise SystemExit(
+            f"因子表未覆盖训练段: 因子 {factor_lo}~{factor_hi}，"
+            f"训练需要 {train_lo}~{train_hi}。请更新 AlphaAgent panel 后重新导出。"
+        )
+
+    bar_end = latest if not hasattr(latest, "isoformat") else latest
+    bar_end = _as_date(bar_end) or latest
+    test_end_date = min(bar_end, factor_hi)
+    if test_end_date < datetime.strptime(args.test_start, "%Y-%m-%d").date():
+        raise SystemExit("因子表未覆盖任何测试日")
+    if test_end_date < bar_end:
+        print(
+            f"[compare] 因子表止于 {factor_hi}，行情止于 {bar_end}；"
+            f"测试截止日期对齐到因子表，避免训练段覆盖不足误报"
+        )
+    test_end = test_end_date.isoformat()
 
     print(
         f"[compare] Alpha158 T+5 train=2010-01-01~{args.train_end} "
         f"valid~{args.valid_end} test={args.test_start}~{test_end}"
     )
+    print(f"[compare] 因子表覆盖 {factor_lo} ~ {factor_hi}  列={len(factor_cols)}")
     t0 = time.time()
     dataset = build_variant_dataset(
         lab,
@@ -205,23 +248,17 @@ def main() -> int:
         data_end=test_end,
         cache_name=None,
     )
+    required_lo = _as_date(dataset.fetch_infer(Segment.TRAIN)["datetime"].min())
+    required_hi = _as_date(dataset.fetch_infer(Segment.TEST)["datetime"].max())
+    if required_lo is None or required_hi is None or factor_lo > required_lo or factor_hi < required_hi:
+        raise SystemExit(
+            f"因子覆盖不足: {factor_lo}~{factor_hi}，模型需要 {required_lo}~{required_hi}"
+        )
+
     base_model = LgbModel()
     base_model.fit(dataset)
     base_signal = _signal(dataset, base_model, args.test_start, st_symbols)
 
-    ft_dates = (
-        pl.scan_parquet(args.factor_table)
-        .select(pl.col("datetime").min().alias("lo"), pl.col("datetime").max().alias("hi"))
-        .collect()
-        .row(0, named=True)
-    )
-    required_lo = dataset.fetch_infer(Segment.TRAIN)["datetime"].min()
-    required_hi = dataset.fetch_infer(Segment.TEST)["datetime"].max()
-    if ft_dates["lo"] > required_lo or ft_dates["hi"] < required_hi:
-        raise SystemExit(
-            f"因子覆盖不足: {ft_dates['lo']}~{ft_dates['hi']}，"
-            f"模型需要 {required_lo}~{required_hi}"
-        )
     rows_before = dataset.fetch_infer(Segment.TEST).height
     inject_mining_factors(dataset, args.factor_table)
     if dataset.fetch_infer(Segment.TEST).height != rows_before:

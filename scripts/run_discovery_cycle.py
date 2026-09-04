@@ -54,7 +54,7 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument(
         "--factor-ids",
         default=None,
-        help="配合 --skip-mining，直接验收指定因子（逗号分隔）",
+        help="配合 --skip-mining：真实 factor_id 逗号分隔（不要填 id1,id2 占位符）",
     )
     p.add_argument("--dry-run", action="store_true", help="只检查并打印执行计划")
     p.add_argument("--run-id", default=datetime.now().strftime("%Y%m%d_%H%M%S"))
@@ -302,6 +302,24 @@ def main() -> int:
 
     if args.skip_mining and not args.factor_ids:
         raise SystemExit("--skip-mining 时必须指定 --factor-ids，避免误把历史因子当作本轮产物")
+    if args.skip_mining and args.factor_ids:
+        requested = [x.strip() for x in args.factor_ids.split(",") if x.strip()]
+        if set(requested) <= {"id1", "id2", "id3"}:
+            raise SystemExit(
+                "--factor-ids 不能用文档占位符 id1,id2。\n"
+                "先在服务器执行：\n"
+                "  python -c \"import json;from pathlib import Path;"
+                "r=json.loads(Path('artifacts/factorzoo/stock_1d/mining_delivered_registry.json').read_text());"
+                "[print(k) for k in sorted(r)]\"\n"
+                "再把真实 factor_id 填进 --factor-ids"
+            )
+        registry = _load_json(args.registry)
+        missing = [x for x in requested if x not in registry]
+        if missing:
+            available = "\n".join(f"  {k}" for k in sorted(registry))
+            raise SystemExit(
+                f"--factor-ids 在 registry 中不存在: {missing}\n可用 factor_id:\n{available}"
+            )
     if not (args.vnpy_root / "smallcap_live/config.py").is_file():
         raise SystemExit(f"找不到 VNpy alpha_research: {args.vnpy_root}")
 
