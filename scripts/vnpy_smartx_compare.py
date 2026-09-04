@@ -156,6 +156,9 @@ def main() -> int:
     research = args.vnpy_root.resolve()
     if not (research / "smallcap_live" / "config.py").is_file():
         raise SystemExit(f"不是有效的 alpha_research 路径: {research}")
+    # 下面会 chdir 到 vnpy 目录，相对路径必须先钉死成绝对路径
+    args.factor_table = args.factor_table.expanduser().resolve()
+    args.report_json = args.report_json.expanduser().resolve()
     if not args.factor_table.is_file():
         raise SystemExit(f"因子表不存在: {args.factor_table}")
 
