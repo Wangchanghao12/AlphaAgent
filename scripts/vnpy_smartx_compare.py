@@ -27,6 +27,16 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--test-start", default="2024-01-01")
     p.add_argument("--capital", type=float, default=200_000)
     p.add_argument("--run-id", default=datetime.now().strftime("%Y%m%d_%H%M%S"))
+    p.add_argument(
+        "--cache-name",
+        default="alpha158_t2_cache",
+        help="Alpha158 特征缓存名（相对 lab/allstock/dataset/）。空字符串则强制重算",
+    )
+    p.add_argument(
+        "--recompute-alpha158",
+        action="store_true",
+        help="忽略已有 Alpha158 缓存，全量重算特征",
+    )
     return p.parse_args()
 
 
@@ -167,7 +177,7 @@ def main() -> int:
 
     import polars as pl
     from buyable import EXCLUDED_PREFIXES, get_st_symbols
-    from label_timing.train_label_timing import build_variant_dataset
+    from label_timing.train_label_timing import ALPHA158_CACHE_NAME, build_variant_dataset
     from mining_inject import inject_mining_factors
     from multihorizon_neutral.research_workflow_multihorizon_neutral import (
         CSI300_LAB_PATH,
@@ -233,6 +243,28 @@ def main() -> int:
         )
     test_end = test_end_date.isoformat()
 
+    cache_name: str | None = None if args.recompute_alpha158 or args.cache_name == "" else (
+        args.cache_name or ALPHA158_CACHE_NAME
+    )
+    if cache_name:
+        cache_path = lab.dataset_path / f"{cache_name}.parquet"
+        if cache_path.is_file():
+            cache_hi = _as_date(
+                pl.scan_parquet(cache_path).select(pl.col("datetime").max()).collect().item()
+            )
+            print(f"[compare] 命中 Alpha158 缓存 {cache_path} 覆盖到 {cache_hi}")
+            if cache_hi is not None and cache_hi < test_end_date:
+                print(
+                    f"[compare] 缓存早于测试截止 {test_end_date}，测试对齐到缓存末日 {cache_hi}"
+                )
+                test_end_date = cache_hi
+                test_end = test_end_date.isoformat()
+        else:
+            print(f"[compare] 未找到 {cache_path}，将全量重算 Alpha158")
+            cache_name = None
+    else:
+        print("[compare] --recompute-alpha158：全量重算 Alpha158 特征")
+
     print(
         f"[compare] Alpha158 T+5 train=2010-01-01~{args.train_end} "
         f"valid~{args.valid_end} test={args.test_start}~{test_end}"
@@ -249,7 +281,7 @@ def main() -> int:
         train_end=args.train_end,
         valid_end=args.valid_end,
         data_end=test_end,
-        cache_name=None,
+        cache_name=cache_name,
     )
     required_lo = _as_date(dataset.fetch_infer(Segment.TRAIN)["datetime"].min())
     required_hi = _as_date(dataset.fetch_infer(Segment.TEST)["datetime"].max())

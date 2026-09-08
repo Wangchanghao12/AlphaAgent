@@ -112,6 +112,13 @@ this round's passing factors, retrains Alpha158 T+5 BASE/MINING models on
 `artifacts/mining_runs/<run_id>/`. If the panel is missing, it is built
 automatically from the VNpy daily archive. Use `--dry-run` for preflight only.
 
+Summarize historical runs:
+
+```bash
+uv run python scripts/summarize_mining_runs.py
+uv run python scripts/summarize_mining_runs.py --last 10 --json-out artifacts/mining_runs/summary.json
+```
+
 ## Tests
 
 ```powershell
