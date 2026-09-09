@@ -18,6 +18,7 @@ REGISTRY = ROOT / "artifacts/factorzoo/stock_1d/mining_delivered_registry.json"
 PANEL = ROOT / "artifacts/panel/panel_1d.parquet"
 FACTORLIB = ROOT / "artifacts/factorzoo/stock_1d"
 MARKET_HQ = ROOT / "artifacts/market/daily_hq.parquet"
+MINING_USER_FILE = ROOT / "configs/mining_user_discovery.txt"
 
 
 def _parse_args() -> argparse.Namespace:
@@ -57,6 +58,12 @@ def _parse_args() -> argparse.Namespace:
         help="配合 --skip-mining：真实 factor_id 逗号分隔（不要填 id1,id2 占位符）",
     )
     p.add_argument("--dry-run", action="store_true", help="只检查并打印执行计划")
+    p.add_argument(
+        "--mining-user-file",
+        type=Path,
+        default=MINING_USER_FILE,
+        help="挖掘阶段注入 agent 的离线总结（--user-file）；传空字符串禁用",
+    )
     p.add_argument("--run-id", default=datetime.now().strftime("%Y%m%d_%H%M%S"))
     p.add_argument(
         "positional",
@@ -351,31 +358,37 @@ def main() -> int:
         candidates = [x.strip() for x in args.factor_ids.split(",") if x.strip()]
     else:
         before = _load_json(args.registry)
+        mining_cmd = [
+            "bash",
+            "scripts/run_factor_mining_parallel.sh",
+            "--panel",
+            str(args.panel),
+            "--lanes",
+            args.lanes,
+            "--max-turns",
+            str(args.max_turns),
+            "--label-col",
+            "label_5d_close_to_close",
+            "--train-start",
+            "2010-01-01",
+            "--train-end",
+            "2020-12-31",
+            "--val-start",
+            "2021-01-01",
+            "--val-end",
+            "2022-12-31",
+            "--holdout-start",
+            "2023-01-01",
+            "--holdout-end",
+            "2023-12-31",
+        ]
+        if args.mining_user_file and str(args.mining_user_file).strip():
+            mining_user = Path(args.mining_user_file)
+            if not mining_user.is_file():
+                raise SystemExit(f"找不到挖掘离线总结: {mining_user}")
+            mining_cmd.extend(["--user-file", str(mining_user)])
         _run(
-            [
-                "bash",
-                "scripts/run_factor_mining_parallel.sh",
-                "--panel",
-                str(args.panel),
-                "--lanes",
-                args.lanes,
-                "--max-turns",
-                str(args.max_turns),
-                "--label-col",
-                "label_5d_close_to_close",
-                "--train-start",
-                "2010-01-01",
-                "--train-end",
-                "2020-12-31",
-                "--val-start",
-                "2021-01-01",
-                "--val-end",
-                "2022-12-31",
-                "--holdout-start",
-                "2023-01-01",
-                "--holdout-end",
-                "2023-12-31",
-            ],
+            mining_cmd,
             log=run_dir / "mining.log",
         )
         candidates = _changed_ids(before, _load_json(args.registry))

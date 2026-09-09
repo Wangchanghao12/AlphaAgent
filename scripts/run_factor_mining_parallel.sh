@@ -12,6 +12,7 @@
 # 用法（仓库根目录）：
 #   export OPENAI_API_KEY=sk-xxxx
 #   bash scripts/run_factor_mining_parallel.sh --lanes momentum,volatility,volume,weekly
+#   bash scripts/run_factor_mining_parallel.sh --user-file configs/mining_user_discovery.txt
 #   bash scripts/run_factor_mining_parallel.sh --lanes momentum,fundamental --no-submit --max-turns 3
 #
 # 可选环境变量：MAX_TURNS（默认 8）、RETRY_ATTEMPTS（单 lane 失败重试次数，默认 3）。
@@ -76,6 +77,7 @@ MAX_TURNS="${MAX_TURNS:-8}"
 RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-3}"
 NO_SUBMIT="${NO_SUBMIT:-0}"
 LOG_ROOT="${LOG_ROOT:-logs/factor_mining}"
+USER_FILE="${USER_FILE:-configs/mining_user_discovery.txt}"
 
 # 命令行 flag（覆盖环境变量默认值）
 while [[ $# -gt 0 ]]; do
@@ -83,6 +85,8 @@ while [[ $# -gt 0 ]]; do
     --lanes)     LANES="${2:?--lanes 需要参数，如 momentum,volume}"; shift 2 ;;
     --max-turns) MAX_TURNS="${2:?--max-turns 需要参数}"; shift 2 ;;
     --panel)     PANEL="${2:?--panel 需要参数}"; shift 2 ;;
+    --user-file) USER_FILE="${2:?--user-file 需要参数}"; shift 2 ;;
+    --no-user-file) USER_FILE=""; shift ;;
     --label-col) LABEL_COL="${2:?--label-col 需要参数}"; shift 2 ;;
     --train-start) TRAIN_START="${2:?--train-start 需要参数}"; shift 2 ;;
     --train-end) TRAIN_END="${2:?--train-end 需要参数}"; shift 2 ;;
@@ -107,6 +111,7 @@ printf 'LABEL_COL    : %s\n' "$LABEL_COL"
 printf 'WINDOWS      : train=%s~%s val=%s~%s holdout=%s~%s\n' \
   "$TRAIN_START" "$TRAIN_END" "$VAL_START" "$VAL_END" "$HOLDOUT_START" "$HOLDOUT_END"
 printf 'LANES        : %s\n' "$LANES"
+printf 'USER_FILE    : %s\n' "${USER_FILE:-<none>}"
 printf 'per-proc eval/workers: %s/%s\n' "$MAX_PARALLEL_EVAL" "$MAX_TOOL_WORKERS"
 
 if command -v uv >/dev/null 2>&1; then
@@ -150,6 +155,13 @@ BASE=(
 )
 if [[ "$NO_SUBMIT" == "1" ]]; then
   BASE+=(--no-submit)
+fi
+if [[ -n "$USER_FILE" ]]; then
+  if [[ ! -f "$USER_FILE" ]]; then
+    echo "错误：找不到 --user-file: $USER_FILE" >&2
+    exit 1
+  fi
+  BASE+=(--user-file "$USER_FILE")
 fi
 
 IFS=',' read -ra LANE_LIST <<< "$LANES"

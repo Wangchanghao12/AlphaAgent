@@ -1,0 +1,31 @@
+【离线总结 · SmartX 验收反馈（只读参考，勿机械复刻已有因子 id）】
+
+背景：前两轮 discovery cycle 已完成 gate + Alpha158 T+5 SmartX 对照（CSI300 PIT / S30-daily / 择时 / 真实费率）。
+终审规则：全期 ΔSharpe≥0.05 且 ΔRet>0；三年中至少两年 ΔSharpe>0；最差年 ΔSharpe≥-0.10。
+
+--- 轮次 20260904（6 因子 gate 通过，SmartX 未通过）---
+- 全期：ΔRet -4.53pp，ΔSharpe -0.271
+- 2024 略正（ΔSharpe +0.066），2025 大负（ΔSharpe -0.618），2026 负
+- 机制画像：Amihud 流动性、隔夜-日内价差、quiet 低波放量类；gate 能过，但组合进 LGB 后 2025 明显拖累
+- 教训：纯流动性/微观结构微调（改窗口、改 rank/neut 组合）已饱和，勿再 submit 同类变体
+
+--- 轮次近失（3 因子 gate 通过，SmartX 差 0.005 未过线）---
+- 全期：ΔRet +11.31pp，ΔSharpe +0.264（全期与 2024 OOS 很强）
+- 2024：ΔSharpe +0.618；2025：ΔSharpe -0.105（仅比 -0.10 下限差 0.005）；2026：+0.166
+- 教训：存在真实组合 alpha，但 2025 regime 下稳定性不足；新因子应优先「与 Alpha158 动量/反转低相关」，并控制换手（cs_pearson_autocorr 尽量 >0.65）
+
+--- 本会话挖掘约束 ---
+1. **探索配额**：至少 2 条并行假设的主信号必须来自「非 Amihud / 非 on_minus_intraday / 非 quiet_lowvol 族」；允许用市值/行业作中性化控制列。
+2. **禁止路径**：仅改 TS 窗口、RANK 层数、NEUTRALIZE 分组的 Amihud 或隔夜价差变体；查重失败时须换经济机制而非调参。
+3. **优先结构**：
+   - 截面秩 + 行业/市值中性后的「慢变量 × 快变量」交互（如基本面 PIT × 价量状态，仅限 fundamental lane）
+   - 波动率状态切换（低波→高波过渡、realized vol 分位），但避免与 idvol 简单重复
+   - 成交量/金额的信息含量（非 Amihud），如买卖不平衡代理、量价背离
+   - 跨周期（@1w × 1d）且 cs_pearson_autocorr 高的因子
+4. **交付前自检**（train/val 达标后、submit 前在心里过一遍）：
+   - 与 registry 里 amihud* / on_minus_intraday* / quiet_lowvol* 逻辑是否过近？过近则改写
+   - 因子是否主要在做「高动量追涨」？若是，换机制
+   - 能否用一句话说清与 Alpha158 常见因子的差异？
+5. **标签与窗口**：label_5d_close_to_close；train 2010–2020 / val 2021–2022 / holdout gate 2023（勿用 2024+ 数据调参）。
+
+工作方式不变：并行 eval_on_train_set → val 同号检验 → submit_factor；达标才交付。
