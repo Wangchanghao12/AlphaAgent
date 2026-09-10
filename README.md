@@ -112,9 +112,10 @@ this round's passing factors, retrains Alpha158 T+5 BASE/MINING models on
 `artifacts/mining_runs/<run_id>/`. If the panel is missing, it is built
 automatically from the VNpy daily archive. Use `--dry-run` for preflight only.
 
-Offline lessons for the mining agent live in `configs/mining_user_discovery.txt`
-(human notes in `configs/mining_lessons.md`). Discovery cycle passes this file
-via `--user-file` automatically.
+Offline lessons: run `summarize_mining_runs.py --update-discovery-user` to
+regenerate `configs/mining_user_discovery.txt` from `artifacts/mining_runs/`.
+Edit human constraints in `configs/mining_user_discovery_constraints.txt`.
+Discovery cycle passes the user file via `--user-file` automatically.
 
 Loop until SmartX passes (Feishu webhook in `.env` as `FEISHU_WEBHOOK_URL`):
 

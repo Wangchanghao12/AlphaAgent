@@ -9,6 +9,7 @@ gate_eval.json + smartx_compare.json 拼装。
   uv run python scripts/summarize_mining_runs.py --last 10
   uv run python scripts/summarize_mining_runs.py --json-out artifacts/mining_runs/summary.json
   uv run python scripts/summarize_mining_runs.py --csv-out artifacts/mining_runs/summary.csv
+  uv run python scripts/summarize_mining_runs.py --update-discovery-user
 """
 
 from __future__ import annotations
@@ -23,6 +24,11 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RUNS_DIR = ROOT / "artifacts" / "mining_runs"
+DISCOVERY_USER_FILE = ROOT / "configs/mining_user_discovery.txt"
+DISCOVERY_CONSTRAINTS_FILE = ROOT / "configs/mining_user_discovery_constraints.txt"
+AUTO_BEGIN = "# --- AUTO-GENERATED (summarize_mining_runs.py --update-discovery-user) ---"
+AUTO_END = "# --- END AUTO-GENERATED ---"
+MANUAL_BEGIN = "# --- MANUAL CONSTRAINTS (edit configs/mining_user_discovery_constraints.txt) ---"
 
 
 def _parse_args() -> argparse.Namespace:
@@ -38,6 +44,17 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--gate-pass-only", action="store_true", help="只显示 gate 至少通过 1 个因子的轮次")
     p.add_argument("--json-out", type=Path, default=None, help="写出机器可读汇总 JSON")
     p.add_argument("--csv-out", type=Path, default=None, help="写出 CSV 表")
+    p.add_argument(
+        "--update-discovery-user",
+        action="store_true",
+        help="根据 mining_runs 重写 configs/mining_user_discovery.txt（供下一轮挖掘 --user-file）",
+    )
+    p.add_argument(
+        "--discovery-user-file",
+        type=Path,
+        default=DISCOVERY_USER_FILE,
+        help="--update-discovery-user 的输出路径",
+    )
     return p.parse_args()
 
 
@@ -250,6 +267,161 @@ def build_hints(rows: list[dict[str, Any]], summary: dict[str, Any]) -> list[str
     return hints
 
 
+def _infer_factor_families(factor_ids: list[str]) -> list[str]:
+    families: list[str] = []
+    patterns = (
+        ("Amihud/流动性", ("amihud",)),
+        ("隔夜-日内", ("on_minus_intraday", "overnight", "intraday")),
+        ("quiet/低波", ("quiet", "lowvol")),
+        ("波动/idvol", ("idvol", "realized_vol", "vol")),
+        ("动量/反转", ("mom", "reversal", "ret")),
+        ("量价/金额", ("amount", "turnover", "vwap")),
+        ("基本面", ("funda", "roe", "ep", "bp")),
+    )
+    lowered = [f.lower() for f in factor_ids]
+    for label, keys in patterns:
+        if any(any(k in fid for k in keys) for fid in lowered):
+            families.append(label)
+    return families or ["未分类（看 factor_id 自行判断机制）"]
+
+
+def _run_verdict(row: dict[str, Any]) -> str:
+    if row.get("effective"):
+        return "SmartX 通过"
+    if not row.get("smartx_ran"):
+        return "仅 gate / SmartX 未跑完"
+    d_sh = row.get("delta_sharpe")
+    worst = row.get("worst_year_delta_sharpe")
+    pos_years = row.get("positive_years") or 0
+    if d_sh is not None and d_sh >= -0.05 and pos_years >= 2:
+        return "近失（全期接近有效，分年稳定性不足）"
+    if worst is not None and worst < -0.10:
+        return "SmartX 未通过（最差年 ΔSharpe 低于 -0.10）"
+    return "SmartX 未通过"
+
+
+def _format_yearly(row: dict[str, Any]) -> str:
+    yearly = row.get("yearly") or {}
+    if not yearly:
+        return "分年：无 SmartX 分年数据"
+    parts = []
+    for year, yrow in sorted(yearly.items()):
+        dr = yrow.get("delta_return_pct")
+        ds = yrow.get("delta_sharpe")
+        dr_s = f"{dr:+.2f}pp" if dr is not None else "NA"
+        ds_s = f"{ds:+.3f}" if ds is not None else "NA"
+        parts.append(f"{year} ΔRet {dr_s} / ΔSharpe {ds_s}")
+    return "分年：" + "；".join(parts)
+
+
+def _format_run_section(row: dict[str, Any]) -> list[str]:
+    run_id = row.get("run_id", "?")
+    passed = row.get("passed_factor_ids") or []
+    families = _infer_factor_families(passed)
+    lines = [
+        f"--- 轮次 {run_id}（gate {row.get('gate_passed', 0)}，{_run_verdict(row)}）---",
+        f"- gate 通过因子：{', '.join(passed) if passed else '（无）'}",
+        f"- 机制画像（由 factor_id 推断）：{', '.join(families)}",
+    ]
+    if row.get("smartx_ran"):
+        dr = row.get("delta_return_pct")
+        ds = row.get("delta_sharpe")
+        lines.append(
+            f"- 全期：ΔRet {dr:+.2f}pp，ΔSharpe {ds:+.3f}"
+            if dr is not None and ds is not None
+            else "- 全期：SmartX 有跑但缺 delta 指标"
+        )
+        lines.append(f"- {_format_yearly(row)}")
+        worst = row.get("worst_year_delta_sharpe")
+        if worst is not None and worst < -0.10:
+            lines.append("- 教训：最差年 Sharpe 拖累明显，新因子须提高跨 regime 稳定性（尤其 2025）")
+        elif _run_verdict(row).startswith("近失"):
+            lines.append("- 教训：有组合 alpha，但 2025 等年份稳定性差 0.01 量级；优先低换手、与 Alpha158 低相关")
+        elif (row.get("delta_sharpe") or 0) < 0:
+            lines.append("- 教训：组合增量为负，避免重复同类机制微调")
+    else:
+        lines.append("- 说明：本轮未产出完整 SmartX 对照（可能 cycle 中断或仅完成 gate）")
+    return lines
+
+
+def _load_manual_constraints(path: Path | None = None) -> str:
+    path = path or DISCOVERY_CONSTRAINTS_FILE
+    if path.is_file():
+        return path.read_text(encoding="utf-8").strip()
+    return (
+        "（未找到 configs/mining_user_discovery_constraints.txt；"
+        "请创建该文件以维护人工挖掘约束。）"
+    )
+
+
+def build_discovery_user_text(
+    rows: list[dict[str, Any]],
+    summary: dict[str, Any],
+    hints: list[str],
+    *,
+    generated_at: str | None = None,
+    constraints_path: Path | None = None,
+) -> str:
+    ts = generated_at or datetime.now().astimezone().isoformat(timespec="seconds")
+    smartx_rows = [r for r in rows if r.get("smartx_ran")]
+    history_rows = smartx_rows[-5:] if smartx_rows else rows[-5:]
+
+    auto_lines = [
+        "【离线总结 · SmartX 验收反馈（只读参考，勿机械复刻已有 factor_id）】",
+        "",
+        f"自动生成于：{ts}",
+        "背景：discovery cycle = gate(2023) + Alpha158 T+5 SmartX（CSI300 PIT / S30-daily / 择时 / 真实费率）。",
+        "终审规则：全期 ΔSharpe≥0.05 且 ΔRet>0；三年中至少两年 ΔSharpe>0；最差年 ΔSharpe≥-0.10。",
+        "",
+        f"汇总（共 {summary.get('run_count', 0)} 轮）："
+        f" gate≥1 {summary.get('with_gate_pass', 0)} 轮，"
+        f" SmartX {summary.get('with_smartx', 0)} 轮，"
+        f" effective {summary.get('effective_count', 0)} 轮。",
+    ]
+    if summary.get("avg_delta_sharpe_when_smartx") is not None:
+        auto_lines.append(
+            f"SmartX 平均 ΔSharpe：{summary['avg_delta_sharpe_when_smartx']:+.3f}"
+        )
+    auto_lines.append("")
+    auto_lines.append("【历史轮次（最近有 SmartX 的最多 5 轮）】")
+    if history_rows:
+        for row in history_rows:
+            auto_lines.extend(_format_run_section(row))
+            auto_lines.append("")
+    else:
+        auto_lines.append("（尚无完整轮次记录）")
+        auto_lines.append("")
+
+    auto_lines.append("【自动建议】")
+    for hint in hints:
+        auto_lines.append(f"- {hint}")
+
+    manual = _load_manual_constraints(constraints_path)
+    return (
+        f"{AUTO_BEGIN}\n"
+        + "\n".join(auto_lines).rstrip()
+        + f"\n{AUTO_END}\n\n"
+        + f"{MANUAL_BEGIN}\n"
+        + manual.rstrip()
+        + "\n"
+    )
+
+
+def write_discovery_user_file(
+    path: Path,
+    rows: list[dict[str, Any]],
+    summary: dict[str, Any],
+    hints: list[str],
+    *,
+    constraints_path: Path | None = None,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = build_discovery_user_text(
+        rows, summary, hints, constraints_path=constraints_path
+    )
+    path.write_text(text, encoding="utf-8")
+
+
 def _fmt_pct(value: float | None, width: int = 7) -> str:
     if value is None:
         return "NA".rjust(width)
@@ -399,6 +571,16 @@ def main() -> int:
     if args.csv_out:
         write_csv(args.csv_out, rows)
         print(f"CSV: {args.csv_out}")
+    if args.update_discovery_user:
+        out = args.discovery_user_file.expanduser().resolve()
+        write_discovery_user_file(out, all_rows, summary, hints)
+        print(f"\n已更新挖掘离线总结: {out}")
+        print("  人工约束编辑: configs/mining_user_discovery_constraints.txt")
+    elif all_rows:
+        print(
+            "\n提示：本次未更新 configs/mining_user_discovery.txt；"
+            "加 --update-discovery-user 可同步到下一轮挖掘 --user-file"
+        )
     return 0
 
 

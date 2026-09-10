@@ -26,6 +26,8 @@ build_hints = smr.build_hints
 collect_runs = smr.collect_runs
 load_run = smr.load_run
 summarize_run = smr.summarize_run
+build_discovery_user_text = smr.build_discovery_user_text
+write_discovery_user_file = smr.write_discovery_user_file
 
 
 def _write_run(
@@ -160,3 +162,36 @@ def test_aggregate_and_hints(tmp_path: Path):
     assert summary["smartx_effective_rate"] == 0.0
     hints = build_hints(rows, summary)
     assert hints
+
+
+def test_build_discovery_user_text(tmp_path: Path):
+    rows = [
+        {
+            "run_id": "20260908_201528",
+            "candidates": 3,
+            "gate_passed": 3,
+            "passed_factor_ids": ["quiet_lowvol_a", "amihud20_x"],
+            "smartx_ran": True,
+            "effective": False,
+            "delta_return_pct": 11.31,
+            "delta_sharpe": 0.264,
+            "positive_years": 2,
+            "worst_year_delta_sharpe": -0.105,
+            "yearly": {
+                "2024": {"delta_return_pct": 10.54, "delta_sharpe": 0.618},
+                "2025": {"delta_return_pct": -1.17, "delta_sharpe": -0.105},
+            },
+        }
+    ]
+    summary = aggregate_summary(rows)
+    hints = build_hints(rows, summary)
+    text = build_discovery_user_text(rows, summary, hints, generated_at="2026-09-10T12:00:00+08:00")
+    assert "20260908_201528" in text
+    assert "近失" in text
+    assert smr.MANUAL_BEGIN in text
+
+    constraints = tmp_path / "constraints.txt"
+    constraints.write_text("人工约束测试", encoding="utf-8")
+    out = tmp_path / "mining_user_discovery.txt"
+    write_discovery_user_file(out, rows, summary, hints, constraints_path=constraints)
+    assert "人工约束测试" in out.read_text(encoding="utf-8")
