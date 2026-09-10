@@ -116,6 +116,15 @@ Offline lessons for the mining agent live in `configs/mining_user_discovery.txt`
 (human notes in `configs/mining_lessons.md`). Discovery cycle passes this file
 via `--user-file` automatically.
 
+Loop until SmartX passes (Feishu webhook in `.env` as `FEISHU_WEBHOOK_URL`):
+
+```bash
+python scripts/run_discovery_until_effective.py \
+  --vnpy-root /path/to/alpha_research \
+  --alpha-python /path/to/python \
+  --vnpy-python /path/to/python
+```
+
 Summarize historical runs:
 
 ```bash

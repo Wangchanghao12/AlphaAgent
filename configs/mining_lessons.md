@@ -14,7 +14,14 @@
 ## 如何重新跑挖掘
 
 ```bash
-# 一键 cycle（推荐，已默认带 user-file）
+# 循环跑直到 SmartX effective（飞书 webhook 放 .env: FEISHU_WEBHOOK_URL）
+nohup python scripts/run_discovery_until_effective.py \
+  --vnpy-root /mnt/recom/develop/wangchanghao/rtp_fg/em_ak/em_ak/examples/alpha_research \
+  --alpha-python /root/miniconda3/envs/vn311py/bin/python \
+  --vnpy-python /root/miniconda3/envs/vn311py/bin/python \
+  >> log/discovery_until.log 2>&1 &
+
+# 单轮 cycle（推荐调试，已默认带 user-file）
 python scripts/run_discovery_cycle.py \
   --vnpy-root /mnt/recom/develop/wangchanghao/rtp_fg/em_ak/em_ak/examples/alpha_research \
   --alpha-python /root/miniconda3/envs/vn311py/bin/python \
