@@ -56,7 +56,8 @@ bash scripts/run_factor_mining_parallel.sh \
 
 ## 更新原则
 
-1. 跑完若干轮后执行：`python scripts/summarize_mining_runs.py --update-discovery-user`
-2. 人工约束只改 `mining_user_discovery_constraints.txt`（探索配额、禁止路径等）
-3. 历史轮次与近失判断由 summarize **自动写入** `mining_user_discovery.txt`
-4. 可选：把特别值得记的结论追加到本文件（`mining_lessons.md`）留档
+1. 查看通过轮与效果：`python scripts/summarize_mining_runs.py --effective-only`
+2. 跑完若干轮后同步 agent 总结：`python scripts/summarize_mining_runs.py --update-discovery-user`
+3. 人工约束只改 `mining_user_discovery_constraints.txt`（探索配额、禁止路径等）
+4. 历史轮次与近失判断由 summarize **自动写入** `mining_user_discovery.txt`
+5. 可选：把特别值得记的结论追加到本文件（`mining_lessons.md`）留档

@@ -10,6 +10,7 @@ gate_eval.json + smartx_compare.json 拼装。
   uv run python scripts/summarize_mining_runs.py --json-out artifacts/mining_runs/summary.json
   uv run python scripts/summarize_mining_runs.py --csv-out artifacts/mining_runs/summary.csv
   uv run python scripts/summarize_mining_runs.py --update-discovery-user
+  uv run python scripts/summarize_mining_runs.py --effective-only   # 只看 SmartX 通过轮详情
 """
 
 from __future__ import annotations
@@ -54,6 +55,11 @@ def _parse_args() -> argparse.Namespace:
         type=Path,
         default=DISCOVERY_USER_FILE,
         help="--update-discovery-user 的输出路径",
+    )
+    p.add_argument(
+        "--no-effective-detail",
+        action="store_true",
+        help="不打印 SmartX 通过轮的详细效果表",
     )
     return p.parse_args()
 
@@ -175,14 +181,34 @@ def summarize_run(combined: dict[str, Any]) -> dict[str, Any]:
         "worst_year_delta_sharpe": _round_num(min(year_sharpes), 3) if year_sharpes else None,
         "elapsed_seconds": _round_num(bt.get("elapsed_seconds"), 1),
         "passed_factor_ids": list(combined.get("passed_factor_ids") or []),
-        "yearly": {
-            year: {
-                "delta_return_pct": _round_num(row.get("delta_return_pct"), 2),
-                "delta_sharpe": _round_num(row.get("delta_sharpe"), 3),
-            }
-            for year, row in sorted(yearly.items())
-        },
+        "base_return_pct": _round_num((bt.get("base") or {}).get("return_pct"), 2),
+        "base_sharpe": _round_num((bt.get("base") or {}).get("sharpe"), 3),
+        "mining_return_pct": _round_num((bt.get("mining") or {}).get("return_pct"), 2),
+        "mining_sharpe": _round_num((bt.get("mining") or {}).get("sharpe"), 3),
+        "yearly": _normalize_yearly(yearly),
     }
+
+
+def _normalize_yearly(yearly: dict[str, Any]) -> dict[str, dict[str, float | None]]:
+    out: dict[str, dict[str, float | None]] = {}
+    for year, row in sorted(yearly.items()):
+        base = row.get("base") or {}
+        mining = row.get("mining") or {}
+        dr = row.get("delta_return_pct")
+        if dr is None:
+            b_ret = _num(base.get("total_return%"))
+            m_ret = _num(mining.get("total_return%"))
+            if b_ret is not None and m_ret is not None:
+                dr = m_ret - b_ret
+        out[str(year)] = {
+            "delta_return_pct": _round_num(dr, 2),
+            "delta_sharpe": _round_num(row.get("delta_sharpe"), 3),
+            "base_return_pct": _round_num(base.get("total_return%"), 2),
+            "mining_return_pct": _round_num(mining.get("total_return%"), 2),
+            "base_sharpe": _round_num(base.get("sharpe"), 3),
+            "mining_sharpe": _round_num(mining.get("sharpe"), 3),
+        }
+    return out
 
 
 def aggregate_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -462,6 +488,60 @@ def print_table(rows: list[dict[str, Any]]) -> None:
         )
 
 
+def print_effective_runs_detail(rows: list[dict[str, Any]]) -> None:
+    """打印 SmartX 通过轮的因子与 BASE/MINING 效果。"""
+    winners = [r for r in rows if r.get("effective")]
+    if not winners:
+        print("\nSmartX 通过轮：0")
+        return
+
+    print(f"\nSmartX 通过轮：{len(winners)}")
+    print("=" * 72)
+    for r in winners:
+        run_id = r.get("run_id", "?")
+        passed = r.get("passed_factor_ids") or []
+        print(f"\n[{run_id}]  gate={r.get('gate_passed', 0)} 因子数={len(passed)}")
+        if passed:
+            print(f"  因子: {', '.join(passed)}")
+
+        if not r.get("smartx_ran"):
+            print("  （无 SmartX 回测数据）")
+            continue
+
+        b_ret, b_sh = r.get("base_return_pct"), r.get("base_sharpe")
+        m_ret, m_sh = r.get("mining_return_pct"), r.get("mining_sharpe")
+        d_ret, d_sh = r.get("delta_return_pct"), r.get("delta_sharpe")
+        if b_ret is not None and m_ret is not None:
+            print(
+                f"  全期收益%  BASE {b_ret:+.2f}  MINING {m_ret:+.2f}  Δ {d_ret:+.2f}pp"
+            )
+        else:
+            print(f"  全期 ΔRet {d_ret:+.2f}pp" if d_ret is not None else "  全期 ΔRet NA")
+        if b_sh is not None and m_sh is not None:
+            print(
+                f"  全期Sharpe BASE {b_sh:+.3f}  MINING {m_sh:+.3f}  Δ {d_sh:+.3f}"
+            )
+        else:
+            print(f"  全期 ΔSharpe {d_sh:+.3f}" if d_sh is not None else "  全期 ΔSharpe NA")
+
+        yearly = r.get("yearly") or {}
+        if yearly:
+            print(f"  {'年份':<6} {'BASE%':>8} {'MINING%':>8} {'ΔRet':>8} {'ΔSharpe':>8}")
+            for year, y in yearly.items():
+                br = y.get("base_return_pct")
+                mr = y.get("mining_return_pct")
+                dr = y.get("delta_return_pct")
+                ds = y.get("delta_sharpe")
+                br_s = f"{br:+.2f}" if br is not None else "NA"
+                mr_s = f"{mr:+.2f}" if mr is not None else "NA"
+                dr_s = f"{dr:+.2f}" if dr is not None else "NA"
+                ds_s = f"{ds:+.3f}" if ds is not None else "NA"
+                print(f"  {year:<6} {br_s:>8} {mr_s:>8} {dr_s:>8} {ds_s:>8}")
+
+        print(f"  报告: artifacts/mining_runs/{run_id}/report.md")
+    print("=" * 72)
+
+
 def print_summary_block(summary: dict[str, Any], hints: list[str]) -> None:
     print()
     print("汇总")
@@ -555,6 +635,8 @@ def main() -> int:
 
     print(f"mining_runs: {runs_dir}  (显示 {len(rows)}/{len(all_rows)} 轮)")
     print_table(rows)
+    if not args.no_effective_detail:
+        print_effective_runs_detail(all_rows)
     print_summary_block(summary, hints)
 
     payload = {
