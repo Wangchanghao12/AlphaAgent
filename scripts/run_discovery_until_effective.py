@@ -22,13 +22,15 @@ import shlex
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from alphaagent.notify.discovery import emit_feishu, format_smartx_brief  # noqa: E402
+
 CYCLE_SCRIPT = ROOT / "scripts/run_discovery_cycle.py"
 RUNS_DIR = ROOT / "artifacts/mining_runs"
 STATE_FILE = RUNS_DIR / "discovery_until_state.json"
@@ -104,60 +106,6 @@ def _save_state(state: dict[str, Any]) -> None:
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def send_feishu_text(webhook: str, text: str, *, timeout: float = 15.0) -> None:
-    if not webhook.strip():
-        print("[feishu] 未配置 webhook，跳过通知", flush=True)
-        return
-    payload = json.dumps({"msg_type": "text", "content": {"text": text}}, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(
-        webhook.strip(),
-        data=payload,
-        headers={"Content-Type": "application/json; charset=utf-8"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"飞书 HTTP {exc.code}: {detail}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"飞书请求失败: {exc}") from exc
-    try:
-        parsed = json.loads(body)
-    except json.JSONDecodeError:
-        parsed = {"raw": body}
-    if isinstance(parsed, dict) and parsed.get("code") not in (None, 0):
-        raise RuntimeError(f"飞书返回错误: {parsed}")
-
-
-def _format_run_brief(result: dict[str, Any]) -> str:
-    run_id = result.get("run_id", "?")
-    passed = result.get("passed_factor_ids") or []
-    effective = bool(result.get("effective"))
-    bt = result.get("backtest") or {}
-    delta = bt.get("delta") or {}
-    lines = [
-        f"run_id: {run_id}",
-        f"gate通过: {len(passed)}  effective: {'是' if effective else '否'}",
-    ]
-    if passed:
-        lines.append(f"因子: {', '.join(passed[:6])}{'…' if len(passed) > 6 else ''}")
-    if delta:
-        lines.append(
-            f"ΔRet {float(delta.get('return_pct', 0)):+.2f}pp  "
-            f"ΔSharpe {float(delta.get('sharpe', 0)):+.3f}"
-        )
-    yearly = bt.get("yearly") or {}
-    if yearly:
-        parts = []
-        for year in sorted(yearly):
-            row = yearly[year]
-            parts.append(f"{year} ΔShp {float(row.get('delta_sharpe', 0)):+.3f}")
-        lines.append(" | ".join(parts))
-    return "\n".join(lines)
-
-
 def _build_cycle_cmd(args: argparse.Namespace, run_id: str) -> list[str]:
     return [
         args.alpha_python,
@@ -228,10 +176,7 @@ def main() -> int:
                 f"请查看 artifacts/mining_runs/ 与 summarize_mining_runs.py"
             )
             print(msg, flush=True)
-            try:
-                send_feishu_text(args.feishu_webhook, msg)
-            except RuntimeError as exc:
-                print(f"[feishu] {exc}", file=sys.stderr)
+            emit_feishu(args.feishu_webhook, msg)
             return 2
 
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -245,7 +190,7 @@ def main() -> int:
         if not result:
             result = {"run_id": run_id, "effective": False, "error": "missing result.json"}
 
-        brief = _format_run_brief(result)
+        brief = format_smartx_brief(result)
         print(brief, flush=True)
 
         entry = {
@@ -266,21 +211,15 @@ def main() -> int:
                 f"log: {log_path}"
             )
             print(err_msg, flush=True)
-            try:
-                send_feishu_text(args.feishu_webhook, err_msg)
-            except RuntimeError as exc:
-                print(f"[feishu] {exc}", file=sys.stderr)
+            emit_feishu(args.feishu_webhook, err_msg)
             if args.stop_on_error:
                 return rc
 
-        elif args.notify_each_run and args.feishu_webhook:
-            try:
-                send_feishu_text(
-                    args.feishu_webhook,
-                    f"[AlphaAgent] discovery 第 {attempt} 轮完成\n{brief}",
-                )
-            except RuntimeError as exc:
-                print(f"[feishu] {exc}", file=sys.stderr)
+        elif args.notify_each_run:
+            emit_feishu(
+                args.feishu_webhook,
+                f"[AlphaAgent] discovery 第 {attempt} 轮完成\n{brief}",
+            )
 
         if result.get("effective"):
             win_msg = (
@@ -290,10 +229,7 @@ def main() -> int:
                 f"产物: artifacts/mining_runs/{run_id}/"
             )
             print(win_msg, flush=True)
-            try:
-                send_feishu_text(args.feishu_webhook, win_msg)
-            except RuntimeError as exc:
-                print(f"[feishu] {exc}", file=sys.stderr)
+            emit_feishu(args.feishu_webhook, win_msg)
             state["outcome"] = "effective"
             state["win_run_id"] = run_id
             _save_state(state)
@@ -310,10 +246,7 @@ def main() -> int:
         f"并更新 configs/mining_user_discovery.txt 后再跑"
     )
     print(msg, flush=True)
-    try:
-        send_feishu_text(args.feishu_webhook, msg)
-    except RuntimeError as exc:
-        print(f"[feishu] {exc}", file=sys.stderr)
+    emit_feishu(args.feishu_webhook, msg)
     state["outcome"] = "max_runs"
     _save_state(state)
     return 1

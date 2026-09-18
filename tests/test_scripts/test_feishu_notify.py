@@ -19,11 +19,14 @@ def _load_module(name: str, path: Path):
     return mod
 
 
+from alphaagent.notify.discovery import format_smartx_brief
+from alphaagent.notify.feishu import send_feishu_text
+
 mod = _load_module("run_discovery_until_effective", ROOT / "scripts/run_discovery_until_effective.py")
 
 
 def test_format_run_brief():
-    text = mod._format_run_brief(
+    text = format_smartx_brief(
         {
             "run_id": "20260910_120000",
             "passed_factor_ids": ["a", "b"],
@@ -47,3 +50,7 @@ def test_feishu_payload_shape():
     parsed = json.loads(payload)
     assert parsed["msg_type"] == "text"
     assert parsed["content"]["text"] == "hi"
+
+
+def test_send_feishu_skips_empty_webhook():
+    assert send_feishu_text("", "hi") == "skipped:no_webhook"

@@ -488,6 +488,15 @@ def main() -> int:
     (run_dir / "report.md").write_text(report, encoding="utf-8")
     print("\n" + report)
     print(f"\n完整产物: {run_dir}")
+    if combined.get("effective"):
+        from alphaagent.notify.discovery import notify_smartx_effective
+
+        webhook = os.environ.get("FEISHU_WEBHOOK_URL", "")
+        notify_smartx_effective(
+            combined,
+            webhook=webhook,
+            headline="[AlphaAgent] SmartX 通过（单轮 discovery cycle）",
+        )
     return 0
 
 
