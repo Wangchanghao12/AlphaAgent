@@ -12,6 +12,24 @@
 | `configs/mining_lessons.md` | 人类可读归档 + 更新说明（本文件，可选） |
 | `artifacts/mining_runs/<run_id>/report.md` | 每轮 cycle 自动生成的机器报告 |
 
+## 影子 MINING 模型（数据训到指定日）
+
+```bash
+# 1) 先检查数据是否覆盖到 2026-09-01
+python scripts/check_shadow_data.py --data-end 2026-09-01 \
+  --vnpy-root /mnt/recom/develop/wangchanghao/rtp_fg/em_ak/em_ak/examples/alpha_research \
+  --check-alpha158-cache
+
+# 2) 再训练
+python scripts/train_shadow_mining_models.py \
+  --vnpy-root /mnt/recom/develop/wangchanghao/rtp_fg/em_ak/em_ak/examples/alpha_research \
+  --alpha-python /root/miniconda3/envs/vn311py/bin/python \
+  --vnpy-python /root/miniconda3/envs/vn311py/bin/python \
+  --data-end 2026-09-01
+```
+
+模型名示例：`shadow_mining__20100104_20260901__20260910_184033`
+
 ## 如何重新跑挖掘
 
 ```bash

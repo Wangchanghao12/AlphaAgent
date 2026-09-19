@@ -22,11 +22,29 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--vnpy-root", type=Path, required=True)
     p.add_argument("--factor-table", type=Path, required=True)
     p.add_argument("--report-json", type=Path, required=True)
+    p.add_argument("--train-start", default="2010-01-04")
     p.add_argument("--train-end", default="2023-09-30")
     p.add_argument("--valid-end", default="2023-12-31")
     p.add_argument("--test-start", default="2024-01-01")
+    p.add_argument(
+        "--data-end",
+        default=None,
+        help="数据集截止日（默认=test 段末日；影子训练可设为 2026-09-01）",
+    )
     p.add_argument("--capital", type=float, default=200_000)
     p.add_argument("--run-id", default=datetime.now().strftime("%Y%m%d_%H%M%S"))
+    p.add_argument(
+        "--train-only",
+        action="store_true",
+        help="只训练并保存模型，不做 SmartX 回测与 effective 判定",
+    )
+    p.add_argument(
+        "--mining-only",
+        action="store_true",
+        help="配合 --train-only：只训 MINING，跳过 BASE",
+    )
+    p.add_argument("--mining-model-name", default=None, help="MINING 模型保存名（vnpy lab）")
+    p.add_argument("--base-model-name", default=None, help="BASE 模型保存名（默认 cycle_base__<run_id>）")
     p.add_argument(
         "--cache-name",
         default="alpha158_t2_cache",
@@ -221,7 +239,7 @@ def main() -> int:
     )
     factor_lo = _as_date(ft_dates["lo"])
     factor_hi = _as_date(ft_dates["hi"])
-    train_lo = datetime.strptime("2010-01-04", "%Y-%m-%d").date()
+    train_lo = datetime.strptime(args.train_start, "%Y-%m-%d").date()
     train_hi = datetime.strptime(args.train_end, "%Y-%m-%d").date()
     if factor_lo is None or factor_hi is None:
         raise SystemExit("因子表日期为空")
@@ -233,15 +251,29 @@ def main() -> int:
 
     bar_end = latest if not hasattr(latest, "isoformat") else latest
     bar_end = _as_date(bar_end) or latest
-    test_end_date = min(bar_end, factor_hi)
-    if test_end_date < datetime.strptime(args.test_start, "%Y-%m-%d").date():
-        raise SystemExit("因子表未覆盖任何测试日")
-    if test_end_date < bar_end:
+    valid_hi = datetime.strptime(args.valid_end, "%Y-%m-%d").date()
+    if args.data_end:
+        data_end_date = datetime.strptime(args.data_end, "%Y-%m-%d").date()
+    elif args.train_only:
+        data_end_date = valid_hi
+    else:
+        data_end_date = min(bar_end, factor_hi)
+    if data_end_date < valid_hi:
+        raise SystemExit(f"data_end {data_end_date} 早于 valid_end {valid_hi}")
+    if factor_hi < data_end_date:
+        raise SystemExit(
+            f"因子表止于 {factor_hi}，需要覆盖到 {data_end_date}。"
+            "请先 update_panel / 重新 export_factors_to_vnpy。"
+        )
+    if bar_end < data_end_date and not args.train_only:
         print(
             f"[compare] 因子表止于 {factor_hi}，行情止于 {bar_end}；"
-            f"测试截止日期对齐到因子表，避免训练段覆盖不足误报"
+            f"测试截止日期对齐到 min(行情,因子)"
         )
-    test_end = test_end_date.isoformat()
+        data_end_date = min(data_end_date, bar_end, factor_hi)
+    test_end = data_end_date.isoformat()
+    if args.train_only:
+        print(f"[train-only] 数据截止 {test_end}，跳过 SmartX 回测")
 
     cache_name: str | None = None if args.recompute_alpha158 or args.cache_name == "" else (
         args.cache_name or ALPHA158_CACHE_NAME
@@ -253,21 +285,28 @@ def main() -> int:
                 pl.scan_parquet(cache_path).select(pl.col("datetime").max()).collect().item()
             )
             print(f"[compare] 命中 Alpha158 缓存 {cache_path} 覆盖到 {cache_hi}")
-            if cache_hi is not None and cache_hi < test_end_date:
+            if cache_hi is not None and cache_hi < data_end_date:
+                if args.train_only:
+                    raise SystemExit(
+                        f"Alpha158 缓存只到 {cache_hi}，影子训练需要到 {data_end_date}；"
+                        "请重算 Alpha158 或去掉 --cache-name"
+                    )
                 print(
-                    f"[compare] 缓存早于测试截止 {test_end_date}，测试对齐到缓存末日 {cache_hi}"
+                    f"[compare] 缓存早于截止 {data_end_date}，对齐到缓存末日 {cache_hi}"
                 )
-                test_end_date = cache_hi
-                test_end = test_end_date.isoformat()
+                data_end_date = cache_hi
+                test_end = data_end_date.isoformat()
         else:
             print(f"[compare] 未找到 {cache_path}，将全量重算 Alpha158")
             cache_name = None
     else:
         print("[compare] --recompute-alpha158：全量重算 Alpha158 特征")
 
+    mode = "train-only" if args.train_only else "compare"
     print(
-        f"[compare] Alpha158 T+5 train=2010-01-01~{args.train_end} "
-        f"valid~{args.valid_end} test={args.test_start}~{test_end}"
+        f"[{mode}] Alpha158 T+5 train={args.train_start}~{args.train_end} "
+        f"valid~{args.valid_end} data_end={test_end}"
+        + ("" if args.train_only else f" test={args.test_start}~{test_end}")
     )
     print(f"[compare] 因子表覆盖 {factor_lo} ~ {factor_hi}  列={len(factor_cols)}")
     t0 = time.time()
@@ -284,28 +323,65 @@ def main() -> int:
         cache_name=cache_name,
     )
     required_lo = _as_date(dataset.fetch_infer(Segment.TRAIN)["datetime"].min())
-    required_hi = _as_date(dataset.fetch_infer(Segment.TEST)["datetime"].max())
+    check_df = dataset.fetch_infer(Segment.VALID if args.train_only else Segment.TEST)
+    required_hi = _as_date(check_df["datetime"].max())
     if required_lo is None or required_hi is None or factor_lo > required_lo or factor_hi < required_hi:
         raise SystemExit(
             f"因子覆盖不足: {factor_lo}~{factor_hi}，模型需要 {required_lo}~{required_hi}"
         )
 
-    base_model = LgbModel()
-    base_model.fit(dataset)
-    base_signal = _signal(dataset, base_model, args.test_start, st_symbols)
+    base_name = args.base_model_name or f"cycle_base__{args.run_id}"
+    mining_name = args.mining_model_name or f"cycle_mining__{args.run_id}"
+    seg_for_rows = Segment.VALID if args.train_only else Segment.TEST
 
-    rows_before = dataset.fetch_infer(Segment.TEST).height
+    base_model = None
+    if not args.mining_only:
+        base_model = LgbModel()
+        base_model.fit(dataset)
+        if args.train_only:
+            lab.save_model(base_name, base_model)
+            print(f"[save] BASE  -> {base_name}")
+
+    rows_before = dataset.fetch_infer(seg_for_rows).height
     inject_mining_factors(dataset, args.factor_table)
-    if dataset.fetch_infer(Segment.TEST).height != rows_before:
+    if dataset.fetch_infer(seg_for_rows).height != rows_before:
         raise SystemExit("因子 join 改变样本行数")
-    if dataset.fetch_infer(Segment.TEST).columns[-1] != "label":
+    if dataset.fetch_infer(seg_for_rows).columns[-1] != "label":
         raise SystemExit("注入后 label 不在最后一列")
 
     mining_model = LgbModel()
     mining_model.fit(dataset)
+    if args.train_only:
+        lab.save_model(mining_name, mining_model)
+        print(f"[save] MINING -> {mining_name}")
+        report = {
+            "run_id": args.run_id,
+            "mode": "train-only",
+            "contract": {
+                "features": f"Alpha158 + {len(factor_cols)} mined factors",
+                "label": "T+5 close-to-close",
+                "train": [args.train_start, args.train_end],
+                "valid_end": args.valid_end,
+                "data_end": test_end,
+            },
+            "factor_ids": factor_cols,
+            "models": {
+                "base": None if args.mining_only else base_name,
+                "mining": mining_name,
+            },
+            "elapsed_seconds": round(time.time() - t0, 1),
+        }
+        args.report_json.parent.mkdir(parents=True, exist_ok=True)
+        args.report_json.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0
+
+    base_signal = _signal(dataset, base_model, args.test_start, st_symbols)
     mining_signal = _signal(dataset, mining_model, args.test_start, st_symbols)
-    lab.save_model(f"cycle_base__{args.run_id}", base_model)
-    lab.save_model(f"cycle_mining__{args.run_id}", mining_model)
+    lab.save_model(base_name, base_model)
+    lab.save_model(mining_name, mining_model)
 
     base_signal, base_symbols = _production_filter(lab, base_signal)
     mining_signal, mining_symbols = _production_filter(lab, mining_signal)
