@@ -141,7 +141,8 @@ def main() -> int:
         dsl_path = expr_file if Path(expr_file).is_absolute() else ROOT / expr_file
         tasks.append((fid, dsl_path.read_text(encoding="utf-8").strip(), args.label_col))
 
-    workers = args.workers or min(6, os.cpu_count() or 1, len(ids))
+    workers = args.workers or int(os.environ.get("EXPORT_WORKERS", "0") or 0)
+    workers = workers or min(6, os.cpu_count() or 1, len(ids))
     results: dict[str, pd.Series] = {}
     if workers <= 1:
         for i, (fid, expr, label_col) in enumerate(tasks, 1):
