@@ -21,8 +21,11 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import multiprocessing as mp
+import os
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -59,6 +62,8 @@ def to_vt_symbol(inst: str) -> str:
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="导出 AlphaAgent 因子为 vnpy 特征长表")
+    p.add_argument("--workers", type=int, default=0,
+                   help="并行求值进程数；0=自动 min(6, CPU核数, 因子数)，1=串行")
     p.add_argument("--registry", type=Path,
                    default=ROOT / "artifacts/factorzoo/stock_1d/mining_delivered_registry.json")
     p.add_argument("--panel", type=Path, default=PANEL_PATH)
@@ -74,6 +79,25 @@ def _parse_args() -> argparse.Namespace:
         help="保留 warmup 期全 NaN 行，供严格训练/测试覆盖检查使用",
     )
     return p.parse_args()
+
+
+# ── 并行导出 ──────────────────────────────────────────────────────
+# 因子之间完全独立，逐因子进程池并行；求值函数 _eval_values 原样不动，
+# 结果与串行逐位一致。forkserver + initializer 每 worker 自载 panel，
+# 避免 fork 继承 pyarrow 线程池的隐患；列顺序仍按 ids 原序拼装。
+_PANEL: pd.DataFrame | None = None
+
+
+def _init_worker(panel_path: Path) -> None:
+    global _PANEL
+    _PANEL = load_panel(panel_path).sort_index()
+
+
+def _eval_one(task: tuple[str, str, str]) -> tuple[str, pd.Series, float]:
+    fid, expr, label_col = task
+    t0 = time.perf_counter()
+    values = _eval_values(expr, _PANEL, label_col=label_col)
+    return fid, pd.Series(values, index=_PANEL.index, name=fid), time.perf_counter() - t0
 
 
 def main() -> int:
@@ -111,14 +135,30 @@ def main() -> int:
 
     # 逐因子求值 DSL，对齐到 panel 索引，纵向拼接成 (datetime,instrument) x 因子列
     t1 = time.perf_counter()
-    series_list: list[pd.Series] = []
-    for i, fid in enumerate(ids, 1):
+    tasks: list[tuple[str, str, str]] = []
+    for fid in ids:
         expr_file = registry[fid]["expression_file"]
         dsl_path = expr_file if Path(expr_file).is_absolute() else ROOT / expr_file
-        expr = dsl_path.read_text(encoding="utf-8").strip()
-        values = _eval_values(expr, panel, label_col=args.label_col)
-        series_list.append(pd.Series(values, index=panel.index, name=fid))
-        print(f"  [{i}/{len(ids)}] {fid} ({time.perf_counter()-t1:.1f}s)", flush=True)
+        tasks.append((fid, dsl_path.read_text(encoding="utf-8").strip(), args.label_col))
+
+    workers = args.workers or min(6, os.cpu_count() or 1, len(ids))
+    results: dict[str, pd.Series] = {}
+    if workers <= 1:
+        for i, (fid, expr, label_col) in enumerate(tasks, 1):
+            values = _eval_values(expr, panel, label_col=label_col)
+            results[fid] = pd.Series(values, index=panel.index, name=fid)
+            print(f"  [{i}/{len(ids)}] {fid} ({time.perf_counter()-t1:.1f}s)", flush=True)
+    else:
+        print(f"并行导出: {workers} 进程（每进程自载 panel，内存峰值≈workers×panel）", flush=True)
+        ctx = mp.get_context("forkserver")
+        with ProcessPoolExecutor(max_workers=workers, mp_context=ctx,
+                                 initializer=_init_worker, initargs=(args.panel,)) as pool:
+            futs = [pool.submit(_eval_one, t) for t in tasks]
+            for done, fut in enumerate(as_completed(futs), 1):
+                fid, series, dt = fut.result()
+                results[fid] = series
+                print(f"  [{done}/{len(ids)}] {fid} ({dt:.1f}s)", flush=True)
+    series_list = [results[fid] for fid in ids]
 
     factor_df = pd.concat(series_list, axis=1)
     out = factor_df.reset_index()[["datetime", "instrument", *ids]]
